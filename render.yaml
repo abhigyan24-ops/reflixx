@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: refillx
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python3 server.py"
+    envVars:
+      - key: SENDER_EMAIL
+        sync: false
+      - key: SENDER_PASSWORD
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: ALLOWED_ORIGIN
+        sync: false
+      - key: ADMIN_PASSCODE
+        sync: false

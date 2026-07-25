@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;900&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     :root {
       --bg: #060f09;
@@ -241,7 +242,7 @@
       font-weight: bold;
       cursor: pointer;
       transition: 0.3s;
-      width: 25%;
+      width: 20%;
       text-align: center;
     }
 
@@ -400,6 +401,8 @@
 
   <div class="bottom-nav" id="bottom-nav" style="display:none;">
     <div class="nav-item active" onclick="switchNav('order', this)"><span class="nav-icon">🏠</span>Home</div>
+    <div class="nav-item" onclick="switchNav('scan', this); startQRScanner();"><span class="nav-icon">📷</span>Scan
+    </div>
     <div class="nav-item" onclick="switchNav('history', this); renderHistory();"><span class="nav-icon">📊</span>History
     </div>
     <div class="nav-item" onclick="switchNav('eco', this); renderEcoPassport();"><span class="nav-icon">🌱</span>Eco
@@ -416,9 +419,6 @@
 
       <label class="text-sm text-gray-400 font-bold mb-2 uppercase tracking-widest block">Full Name</label>
       <input type="text" id="reg-name" class="input-field" placeholder="e.g. Divyansh Singh">
-
-      <label class="text-sm text-gray-400 font-bold mb-2 uppercase tracking-widest block">Mobile Number</label>
-      <input type="tel" id="reg-mobile" class="input-field" placeholder="10-digit mobile number">
 
       <label class="text-sm text-gray-400 font-bold mb-2 uppercase tracking-widest block mt-4">Email Address</label>
       <input type="email" id="reg-email" class="input-field" placeholder="your@email.com">
@@ -492,18 +492,86 @@
         <span class="text-2xl font-bold text-[#3ecf7a]" id="m-price-val">₹0.00</span>
       </div>
     </div>
-    <button class="btn mt-auto" onclick="generateOrderQR()">Generate QR Code</button>
+    <div class="flex gap-2 mt-auto">
+      <button class="btn btn-outline flex-1 flex items-center justify-center gap-2" onclick="startQRScanner()"><span
+          class="text-xl">📷</span> Scan Station QR</button>
+      <button class="btn flex-1" onclick="generateOrderQR()">Generate QR Code</button>
+    </div>
+  </div>
+
+  <!-- Screen: QR Scanner -->
+  <div id="screen-scan" class="screen">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-2xl font-black text-white">Scan Station QR</h2>
+      <button class="text-xs text-gray-400 underline font-bold"
+        onclick="stopQRScanner(); showScreen('order');">Cancel</button>
+    </div>
+
+    <p class="text-sm text-gray-400 mb-4 text-center">Point your camera at a RefillX station or order QR code</p>
+
+    <!-- Scanner Viewfinder Container with Cutout -->
+    <div id="scan-viewfinder-container"
+      class="relative w-full h-[340px] overflow-hidden rounded-2xl border-2 border-[#3ecf7a] bg-black shadow-2xl flex items-center justify-center mb-4">
+      <video id="qr-video" style="width: 100%; height: 100%; object-fit: cover;" autoplay muted playsinline
+        webkit-playsinline></video>
+
+      <!-- Overlay with Cutout -->
+      <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+        <div class="w-64 h-64 border-4 border-[#3ecf7a] rounded-3xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.65)]">
+          <div class="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white -mt-1 -ml-1 rounded-tl-lg"></div>
+          <div class="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white -mt-1 -mr-1 rounded-tr-lg">
+          </div>
+          <div class="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white -mb-1 -ml-1 rounded-bl-lg">
+          </div>
+          <div class="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white -mb-1 -mr-1 rounded-br-lg">
+          </div>
+          <div
+            class="w-full h-1 bg-[#3ecf7a] shadow-[0_0_15px_#3ecf7a] animate-pulse relative top-1/2 -translate-y-1/2">
+          </div>
+        </div>
+      </div>
+      <div id="scan-status-text"
+        class="absolute bottom-3 text-center text-xs font-bold text-[#3ecf7a] bg-black/80 px-4 py-1 rounded-full border border-[#3ecf7a]/40">
+        📷 Point camera at QR code on kiosk screen
+      </div>
+    </div>
+
+    <div id="scanner-error"
+      class="hidden text-red-400 text-sm font-bold text-center mb-4 p-3 bg-red-950/80 rounded-xl border border-red-800 backdrop-blur-md">
+    </div>
+
+    <div class="mt-auto">
+      <div class="bg-[#111] p-4 rounded-xl border border-[#333] mb-4">
+        <div class="text-xs text-gray-400 font-bold block mb-2 uppercase tracking-wider text-center">──── or enter
+          6-digit session code ────</div>
+        <div class="flex gap-2">
+          <input type="text" id="short-code-input" maxlength="6"
+            class="input-field !mb-0 !p-3 text-center font-mono text-lg font-black tracking-[0.3em]"
+            placeholder="374921">
+          <button class="bg-[#3ecf7a] text-black font-extrabold text-sm px-5 rounded-xl"
+            onclick="submitShortCode()">Verify</button>
+        </div>
+      </div>
+      <button class="btn btn-outline w-full" onclick="stopAllCameraTracks(); showScreen('order');">← Back to
+        Order</button>
+    </div>
   </div>
 
   <!-- Screen 2: QR Display -->
   <div id="screen-qr" class="screen text-center">
     <div class="mt-4 flex-1 flex flex-col items-center">
       <h2 class="text-3xl font-black text-white mb-2" id="qr-desc">500ml Water</h2>
-      <p class="text-sm text-gray-400 mb-8" id="session-display">ID: --</p>
+      <p class="text-sm text-gray-400 mb-6" id="session-display">ID: --</p>
 
-      <p class="text-[#f0b429] font-bold mt-8 mb-4">Please hold this code up to the machine scanner</p>
-      <div class="bg-white p-6 mx-auto w-fit mb-8 border-4 border-[#3ecf7a]">
+      <p class="text-[#f0b429] font-bold mb-3">Please hold this code up to the machine scanner</p>
+      <div class="bg-white p-4 mx-auto w-fit mb-4 border-4 border-[#3ecf7a] rounded-2xl shadow-2xl">
         <div id="qrcode"></div>
+      </div>
+
+      <div class="bg-[#111] p-3 rounded-xl border border-[#333] mb-6 max-w-[340px] w-full text-center">
+        <span class="text-xs text-gray-400 font-bold block mb-1 uppercase tracking-wider">──── Session Code ────</span>
+        <span class="text-3xl font-mono font-black text-[#3ecf7a] tracking-[0.25em]"
+          id="short-code-display">------</span>
       </div>
 
       <button class="btn btn-outline mt-auto mb-4 w-full" onclick="showScreen('order')">← Cancel</button>
@@ -523,17 +591,33 @@
       </div>
 
       <div id="payment-action-ui" class="hidden flex-col items-center">
-        <svg class="checkmark mb-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+        <svg class="checkmark mb-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
           <circle class="checkmark__circle" cx="26" cy="26" r="25" fill="none" />
           <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
         </svg>
-        <h1 class="text-4xl font-black text-white mb-2">Dispense Complete</h1>
-        <p class="text-[#86efac] mb-8 text-lg">Please complete your payment to finish.</p>
-        <div class="glass-box w-full mb-8">
-          <p class="text-xl font-bold mb-2 text-gray-400 uppercase tracking-widest" id="pay-desc">500ml Water</p>
-          <p class="text-6xl font-black text-[#3ecf7a] font-mono" id="pay-amount-display">₹2.50</p>
+        <h1 class="text-3xl font-black text-white mb-1">Dispense Complete</h1>
+        <p class="text-[#86efac] mb-4 text-sm">Scan QR or open UPI app to pay</p>
+
+        <div class="glass-box w-full mb-4 py-3">
+          <p class="text-sm font-bold mb-1 text-gray-400 uppercase tracking-widest" id="pay-desc">500ml Water</p>
+          <p class="text-4xl font-black text-[#3ecf7a] font-mono" id="pay-amount-display">₹2.50</p>
         </div>
-        <button class="btn mt-auto mb-3 py-5 text-xl w-full" onclick="triggerPayment(this)">Pay with UPI</button>
+
+        <!-- UPI QR Code Display -->
+        <div class="bg-white p-3 rounded-2xl border-4 border-[#3ecf7a] mb-2 shadow-2xl flex flex-col items-center">
+          <div id="upi-qrcode" class="flex justify-center items-center"></div>
+          <p class="text-[11px] text-gray-800 font-bold font-mono mt-2 bg-gray-100 px-2 py-0.5 rounded">VPA:
+            9039878046-1@nyes</p>
+        </div>
+        <div class="text-[11px] text-gray-400 text-center mb-3 bg-[#111] p-2 rounded-lg border border-[#333] w-full">
+          ℹ️ <strong>Note:</strong> You may see our bank-registered name on your payment app screen — this is normal and
+          safe to proceed.
+        </div>
+
+        <div class="flex gap-2 w-full mt-1">
+          <button class="btn btn-outline flex-1 py-3 text-sm" onclick="openUPIApp()">Open UPI App 📲</button>
+          <button class="btn flex-1 py-3 text-sm" onclick="confirmUPIPayment(this)">Confirm Payment ✓</button>
+        </div>
       </div>
     </div>
   </div>
@@ -585,7 +669,7 @@
   <!-- Eco Passport Tab -->
   <div id="screen-eco" class="screen">
     <h2 class="text-2xl font-black mb-6">Eco Passport</h2>
-    <div class="passport-card p-6 mb-8" id="eco-passport-node">
+    <div class="passport-card p-6 mb-6" id="eco-passport-node">
       <div class="relative z-10">
         <div class="flex justify-between items-start mb-6 border-b border-white/20 pb-4">
           <div>
@@ -617,6 +701,23 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Eco Points Progress & Redemption -->
+    <div class="glass-box mb-8 p-5">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-xs font-bold text-gray-300 uppercase tracking-wider">🎁 Free Refill Reward</span>
+        <span class="text-xs text-[#3ecf7a] font-mono font-bold" id="ep-progress-label">0 / 500 pts</span>
+      </div>
+      <div class="w-full h-3 bg-[#222] rounded-full overflow-hidden mb-4 border border-white/10">
+        <div id="ep-progress-bar"
+          class="h-full bg-gradient-to-r from-[#3ecf7a] to-[#86efac] transition-all duration-500" style="width: 0%;">
+        </div>
+      </div>
+      <button id="ep-redeem-btn" onclick="redeemFreeRefill()" disabled
+        class="w-full py-3 rounded-xl font-bold bg-[#3ecf7a] text-black hover:bg-[#34b86d] transition-all opacity-40 cursor-not-allowed text-sm flex items-center justify-center gap-2">
+        🎁 Redeem Free Refill (500 pts)
+      </button>
     </div>
   </div>
 
@@ -695,12 +796,104 @@
       { name: "Platinum", min: 10000, discount: 0.15, color: "#e5e4e2" }
     ];
 
+    let currentSessionId = null;
+    let currentOrderId = null;
+    let currentUserId = null;
+
     window.USER = JSON.parse(localStorage.getItem('rxMobileUser'));
     window.ORDER = { product: 'shampoo', quantity: 500, amount: 0 };
     window.CURRENT_SID = null;
     let isOnline = true;
     let rxHistory = []; let rxTier = TIERS[0];
+
+    // Helper to reliably retrieve logged-in user_id
+    window.getUserId = function () {
+      if (window.USER && (window.USER.id || window.USER.uid)) {
+        return window.USER.id || window.USER.uid;
+      }
+      const stored = localStorage.getItem('rxMobileUser');
+      if (stored) {
+        try {
+          const u = JSON.parse(stored);
+          if (u && (u.id || u.uid)) return u.id || u.uid;
+        } catch (e) { }
+      }
+      return 'UID-GUEST';
+    };
+
+    // ── Eco Points & Plastic Constants ──────────────────────────────
+    const ML_PER_BOTTLE = 500;          // 1 plastic bottle ≈ 500ml
+    const AVG_BOTTLE_PRICE_INR = 20;    // Adjustable: assumed retail price of a 500ml bottled product
+    const ECO_PTS_PER_100ML = 10;       // base: 10 points per 100ml dispensed
+    const ECO_PTS_PER_BOTTLE = 25;      // bonus: 25 points per plastic bottle avoided
+    const REDEMPTION_THRESHOLD = 500;   // points needed for one free refill (up to 1L)
+    // ────────────────────────────────────────────────────────────────
     let sessionListener = null;
+    let sessionPoller = null;
+    let sessionCompleted = false;
+
+    async function checkOnlineStatus() {
+      // Use the actual banner element id: 'conn-banner'
+      const banner = document.getElementById('conn-banner');
+      try {
+        const res = await fetch(CLOUD_URL + '/api/health', {
+          signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(3000) : undefined
+        });
+        const data = await res.json();
+        if (data && data.status === 'ok') {
+          if (banner) banner.style.display = 'none';
+          window._isOnline = true;
+          isOnline = true;
+          return;
+        }
+      } catch (e) { }
+      if (banner) banner.style.display = 'block';
+      window._isOnline = false;
+      isOnline = false;
+    }
+
+    checkOnlineStatus();
+    setInterval(checkOnlineStatus, 15000);
+
+    async function savePointsToSupabase(userId, quantityMl, sessionId) {
+      const uid = userId || window.getUserId();
+      // Eco Points Formula:
+      // base_points = floor(qty_ml / 100) * 10   (10 pts per 100ml)
+      // bottle_bonus = floor(qty_ml / 500) * 25  (25 pts per plastic bottle avoided)
+      const bottlesSaved = Math.floor(quantityMl / ML_PER_BOTTLE);
+      const basePoints = Math.floor(quantityMl / 100) * ECO_PTS_PER_100ML;
+      const bottleBonus = bottlesSaved * ECO_PTS_PER_BOTTLE;
+      const pointsEarned = basePoints + bottleBonus;
+
+      console.log(`⭐ [PWA] Earned ${pointsEarned} points for user_id '${uid}' (session ${sessionId})`);
+
+      if (window.supabase && sessionId) {
+        try {
+          await window.supabase
+            .from('sessions')
+            .update({ points_earned: pointsEarned, user_id: uid })
+            .eq('id', sessionId);
+        } catch (e) { console.warn("Supabase session points error:", e); }
+        if (uid && uid !== 'UID-GUEST') {
+          try {
+            const { data: userData } = await window.supabase
+              .from('users')
+              .select('points')
+              .eq('id', uid)
+              .single();
+            const currentPoints = userData?.points || 0;
+            const newTotal = currentPoints + pointsEarned;
+            await window.supabase
+              .from('users')
+              .update({ points: newTotal })
+              .eq('id', uid);
+            window.rxPoints = newTotal;
+            console.log(`✅ [PWA] User points updated to ${newTotal}`);
+          } catch (e) { console.warn("Supabase user points error:", e); }
+        }
+      }
+      return pointsEarned;
+    }
 
     // Toast System
     window.showInAppToast = function (message, type = 'info') {
@@ -776,6 +969,7 @@
 
         if (!isOnline) {
           isOnline = true;
+          window._isOnline = true;
           const pending = getPending();
           if (pending.length > 0) {
             for (let task of pending) {
@@ -791,10 +985,14 @@
           if (val !== null) l.callback({ val: () => val, exists: () => val !== null });
         });
 
-        document.getElementById('conn-banner').style.display = 'none';
+        // Server is reachable — always hide banner
+        const banner = document.getElementById('conn-banner');
+        if (banner) banner.style.display = 'none';
       } catch (e) {
+        // Only show banner if server is truly unreachable (not just slow)
         isOnline = false;
-        document.getElementById('conn-banner').style.display = 'block';
+        window._isOnline = false;
+        // Don't immediately show — let checkOnlineStatus handle it
       }
     }, 1500);
 
@@ -843,7 +1041,6 @@
         showScreen('order');
       } else if (window.USER) {
         document.getElementById('reg-name').value = window.USER.name || '';
-        document.getElementById('reg-mobile').value = window.USER.mobileNumber || '';
         document.getElementById('reg-email').value = window.USER.email || '';
       }
     };
@@ -877,18 +1074,277 @@
 
     window.switchNav = function (id, elem) {
       document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-      elem.classList.add('active');
+      if (elem) elem.classList.add('active');
       showScreen(id);
+      if (id === 'scan') {
+        startQRScanner();
+      }
     }
     window.showScreen = function (id) {
+      if (id !== 'scan') {
+        stopQRScanner();
+      }
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-      document.getElementById('screen-' + id).classList.add('active');
+      const target = document.getElementById('screen-' + id);
+      if (target) target.classList.add('active');
     }
+
+    // Camera Scanner System
+    let scanCompleted = false;
+
+    function loadScript(url, callback) {
+      if (document.querySelector(`script[src="${url}"]`)) {
+        if (callback) callback();
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = callback;
+      document.head.appendChild(s);
+    }
+
+    window.stopAllCameraTracks = function () {
+      scanCompleted = true;
+      const video = document.getElementById('qr-video');
+      if (video && video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+      }
+      if (window._stopScanner) {
+        try { window._stopScanner(); } catch (e) { }
+      }
+    };
+
+    window.stopQRScanner = window.stopAllCameraTracks;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        window.stopAllCameraTracks();
+      }
+    });
+
+    window.startSmartScanner = async function () {
+      window.stopAllCameraTracks();
+      scanCompleted = false;
+
+      const errEl = document.getElementById('scanner-error');
+      if (errEl) { errEl.innerText = ""; errEl.classList.add('hidden'); }
+
+      showScreen('scan');
+
+      const video = document.getElementById('qr-video');
+      if (!video) return;
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1920, min: 1280 },
+            height: { ideal: 1080, min: 720 }
+          }
+        });
+
+        // Apply continuous auto-focus constraints
+        const track = stream.getVideoTracks()[0];
+        if (track && track.applyConstraints) {
+          await track.applyConstraints({
+            advanced: [{
+              focusMode: 'continuous',
+              exposureMode: 'continuous',
+              whiteBalanceMode: 'continuous'
+            }]
+          }).catch(() => { });
+        }
+
+        video.srcObject = stream;
+        await video.play().catch(e => console.warn("Video play error:", e));
+
+        if ('BarcodeDetector' in window) {
+          scanWithBarcodeDetector(video);
+        } else {
+          loadScript('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js', () => {
+            scanWithJsQR(video);
+          });
+        }
+      } catch (err) {
+        console.error("Camera access error:", err);
+        let errMsg = "Camera access denied. Please allow camera access in browser settings.";
+        if (err.name === 'NotAllowedError') errMsg = "📷 Camera permission denied. Please allow camera in browser settings and reload.";
+        else if (err.name === 'NotFoundError') errMsg = "📷 No camera found on this device.";
+        if (errEl) { errEl.innerText = errMsg; errEl.classList.remove('hidden'); }
+        window.showInAppToast(errMsg, "error");
+      }
+    };
+
+    window.startQRScanner = window.startSmartScanner;
+
+    function scanWithBarcodeDetector(video) {
+      let detector = null;
+      try {
+        detector = new BarcodeDetector({ formats: ['qr_code'] });
+      } catch (e) {
+        loadScript('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js', () => {
+          scanWithJsQR(video);
+        });
+        return;
+      }
+
+      let active = true;
+      async function loop() {
+        if (!active || scanCompleted) return;
+        try {
+          if (video.readyState >= 2) {
+            const results = await detector.detect(video);
+            if (results && results.length > 0) {
+              active = false;
+              window.handleQRResult(results[0].rawValue);
+              return;
+            }
+          }
+        } catch (e) { }
+        if (active && !scanCompleted) requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+      window._stopScanner = () => { active = false; };
+    }
+
+    function scanWithJsQR(video) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      let active = true;
+
+      function loop() {
+        if (!active || scanCompleted) return;
+        if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          if (typeof jsQR !== 'undefined') {
+            const result = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'attemptBoth'
+            });
+            if (result && result.data) {
+              active = false;
+              window.handleQRResult(result.data);
+              return;
+            }
+          }
+        }
+        if (active && !scanCompleted) requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+
+      window._stopScanner = () => {
+        active = false;
+        if (video.srcObject) {
+          video.srcObject.getTracks().forEach(t => t.stop());
+          video.srcObject = null;
+        }
+      };
+    }
+
+    window.handleQRResult = function (decodedText) {
+      console.log("⚡ QR Code Scanned:", decodedText);
+      window.stopAllCameraTracks();
+
+      if (navigator.vibrate) { try { navigator.vibrate(100); } catch (e) { } }
+
+      let qrData = null;
+      try {
+        qrData = JSON.parse(decodedText);
+      } catch (e) {
+        try {
+          const url = new URL(decodedText);
+          qrData = {
+            sessionId: url.searchParams.get('session') || url.searchParams.get('sid'),
+            stationId: url.searchParams.get('station'),
+            product: url.searchParams.get('product') || url.searchParams.get('prod'),
+            quantity: url.searchParams.get('qty'),
+            expiry: url.searchParams.get('exp')
+          };
+        } catch (urlErr) {
+          qrData = { sessionId: decodedText.trim() };
+        }
+      }
+
+      const errEl = document.getElementById('scanner-error');
+      if (qrData.expiry && Date.now() > parseInt(qrData.expiry)) {
+        const msg = "⚠ This QR code has expired. Please generate a new one.";
+        if (errEl) { errEl.innerText = msg; errEl.classList.remove('hidden'); }
+        window.showInAppToast(msg, "error");
+        return;
+      }
+
+      const targetSid = qrData.sessionId || qrData.sid || (typeof qrData === 'string' ? qrData : null);
+      if (!targetSid && !qrData.stationId) {
+        const msg = "❌ Invalid QR code. Please scan a RefillX station QR.";
+        if (errEl) { errEl.innerText = msg; errEl.classList.remove('hidden'); }
+        window.showInAppToast(msg, "error");
+        setTimeout(() => window.startSmartScanner(), 2000);
+        return;
+      }
+
+      window.handleScannedQR(targetSid || decodedText.trim());
+    };
+
+    window.submitShortCode = async function () {
+      const input = document.getElementById('short-code-input');
+      const code = input ? input.value.trim() : "";
+      if (code.length !== 6 || !/^\d{6}$/.test(code)) {
+        window.showInAppToast("Please enter a valid 6-digit numeric code", "warning");
+        return;
+      }
+
+      window.stopAllCameraTracks();
+      window.showInAppToast("Verifying code " + code + "...", "info");
+
+      try {
+        const res = await fetch(CLOUD_URL + '/api/call/verifyShortCode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: { code: code } })
+        });
+        const result = await res.json();
+
+        if (result.success && result.sessionId) {
+          window.showInAppToast("Code verified! Session found. 🎉", "success");
+          window.handleScannedQR(result.sessionId);
+        } else {
+          window.showInAppToast(result.error || "Invalid or expired 6-digit code", "error");
+          const errEl = document.getElementById('scanner-error');
+          if (errEl) { errEl.innerText = result.error || "Invalid or expired 6-digit code"; errEl.classList.remove('hidden'); }
+        }
+      } catch (err) {
+        console.error("Short code verification error:", err);
+        window.showInAppToast("Error verifying short code", "error");
+      }
+    };
+
+    window.handleScannedQR = function (qrData) {
+      console.log("Processing scanned QR code:", qrData);
+      window.showInAppToast("Scanned: " + qrData, "success");
+
+      if (qrData.startsWith("RFX-") || qrData.startsWith("sim-")) {
+        window.CURRENT_SID = qrData;
+        get(ref(db, `sessions/${qrData}`)).then(snap => {
+          if (snap.exists()) {
+            listenSession(qrData);
+            showScreen('payment');
+          } else {
+            showScreen('order');
+          }
+        }).catch(e => {
+          showScreen('order');
+        });
+      } else {
+        showScreen('order');
+      }
+    };
 
     window.handleSendOtp = function () {
       const nameInput = document.getElementById('reg-name').value;
       const name = nameInput.trim();
-      const mobileInput = document.getElementById('reg-mobile').value;
       const emailInput = document.getElementById('reg-email').value.trim();
       const errorEl = document.getElementById('reg-error');
 
@@ -896,17 +1352,6 @@
 
       if (!name || !emailInput) {
         errorEl.innerText = "Please enter your name and email";
-        errorEl.classList.remove('hidden');
-        return;
-      }
-
-      let mobile = mobileInput.replace(/[\s\-\+]/g, '');
-      if (mobile.startsWith('91') && mobile.length > 10) {
-        mobile = mobile.substring(mobile.length - 10);
-      }
-
-      if (!/^\d{10}$/.test(mobile)) {
-        errorEl.innerText = "Please enter a valid 10-digit mobile number";
         errorEl.classList.remove('hidden');
         return;
       }
@@ -956,7 +1401,7 @@
             code: otpInput,
             oldUid: oldUid,
             name: document.getElementById('reg-name').value.trim(),
-            mobile: document.getElementById('reg-mobile').value.trim()
+            mobile: ''
           }
         })
       }).then(res => res.json()).then(data => {
@@ -965,10 +1410,12 @@
           window.showInAppToast(data.error, "error");
         } else {
           // Successfully verified
+          const userIdStr = data.uid;
           window.USER = {
-            uid: data.uid,
+            uid: userIdStr,
+            id: userIdStr,
             name: document.getElementById('reg-name').value.trim(),
-            mobileNumber: document.getElementById('reg-mobile').value.trim(),
+            mobileNumber: '',
             email: emailInput,
             initials: document.getElementById('reg-name').value.trim().substring(0, 2).toUpperCase(),
             emailVerified: true
@@ -1031,8 +1478,8 @@
 
       const ptsBalance = window.rxPoints || 0;
       if (ptsBalance > 0) {
-        document.getElementById('points-toggle-row').style.display = 'flex';
         document.getElementById('m-points-avail').innerText = ptsBalance + " pts";
+        document.getElementById('points-toggle-row').style.display = 'flex';
       } else {
         document.getElementById('points-toggle-row').style.display = 'none';
       }
@@ -1058,10 +1505,21 @@
 
     // QR Dispense Logic
     window.generateOrderQR = function () {
+      sessionCompleted = false;
+      if (sessionPoller) {
+        clearInterval(sessionPoller);
+        sessionPoller = null;
+      }
+
       window.CURRENT_SID = "RFX-" + Math.random().toString(36).slice(2, 10).toUpperCase();
-      safeSet(`users/${window.USER.uid}/readyQR`, null); // Clear old subscriptions
+      const shortCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const userId = window.getUserId();
+
+      safeSet(`users/${userId}/readyQR`, null); // Clear old subscriptions
       const payload = {
-        sid: window.CURRENT_SID, uid: window.USER.uid,
+        sid: window.CURRENT_SID,
+        shortCode: shortCode,
+        uid: userId,
         prod: window.ORDER.product, qty: window.ORDER.quantity,
         amt: parseFloat(window.ORDER.amount.toFixed(2)),
         exp: Date.now() + 3600000
@@ -1070,104 +1528,190 @@
       // Store full order details server-side for kiosk lookup
       safeSet(`sessions/${window.CURRENT_SID}/order`, {
         ...payload,
-        name: window.USER.name, mobileNumber: window.USER.mobileNumber || '',
+        name: window.USER ? window.USER.name : 'Guest',
+        mobileNumber: (window.USER && window.USER.mobileNumber) ? window.USER.mobileNumber : '',
         unitPrice: PRODUCTS[window.ORDER.product].price,
         productName: PRODUCTS[window.ORDER.product].name,
         createdAt: Date.now()
       });
+      safeSet(`sessions/${window.CURRENT_SID}/shortCode`, shortCode);
 
-      document.getElementById("qrcode").innerHTML = "";
-      new QRCode(document.getElementById("qrcode"), {
-        text: window.CURRENT_SID,
-        width: 360, height: 360,
-        colorDark: "#000", colorLight: "#fff",
-        correctLevel: QRCode.CorrectLevel.M
-      });
+      const qrBox = document.getElementById("qrcode");
+      if (qrBox) {
+        qrBox.innerHTML = "";
+        new QRCode(qrBox, {
+          text: window.CURRENT_SID,
+          width: 400,
+          height: 400,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.H
+        });
+      }
+
       document.getElementById('qr-desc').innerText = `${window.ORDER.quantity}ml ${PRODUCTS[window.ORDER.product].name}`;
       document.getElementById('session-display').innerText = "ID: " + window.CURRENT_SID;
+      const scEl = document.getElementById('short-code-display');
+      if (scEl) scEl.innerText = shortCode;
 
-      showScreen('qr'); listenSession(window.CURRENT_SID);
+      showScreen('qr');
+      listenSession(window.CURRENT_SID);
     }
 
     function listenSession(sid) {
-      if (sessionListener) sessionListener();
+      if (sessionPoller) {
+        clearInterval(sessionPoller);
+        sessionPoller = null;
+      }
+      sessionCompleted = false;
 
-      sessionListener = onValue(ref(db, `sessions/${sid}`), (snap) => {
-        const data = snap.val();
-        if (!data) return;
+      sessionPoller = setInterval(async () => {
+        if (sessionCompleted) return;
 
-        if (data.status === 'dispensing') {
-          showScreen('payment');
-          document.getElementById('payment-timer-ui').style.display = 'block';
-          document.getElementById('payment-action-ui').classList.remove('flex'); document.getElementById('payment-action-ui').classList.add('hidden');
+        try {
+          const snap = await get(ref(db, `sessions/${sid}`));
+          if (sessionCompleted) return;
 
-          // Mirror progress
+          const data = snap ? snap.val() : null;
+          if (!data) return;
+
           const pct = data.progress || 0;
-          document.getElementById('pay-timer-text').innerText = `${pct}%`;
-          document.getElementById('pay-timer-circle').style.strokeDashoffset = 314 - (314 * (pct / 100));
-        }
 
-        if (data.status === 'complete') {
-          if (sessionListener) { sessionListener(); sessionListener = null; }
-          document.getElementById('payment-timer-ui').style.display = 'none';
-          document.getElementById('payment-action-ui').classList.remove('hidden'); document.getElementById('payment-action-ui').classList.add('flex');
+          if (data.status === 'dispensing') {
+            showScreen('payment');
+            document.getElementById('payment-timer-ui').style.display = 'block';
+            document.getElementById('payment-action-ui').style.display = 'none';
 
-          document.getElementById('pay-desc').innerText = `${window.ORDER.quantity}ml ${PRODUCTS[window.ORDER.product].name}`;
-          document.getElementById('pay-amount-display').innerText = `₹${window.ORDER.amount.toFixed(2)}`;
-          window.showInAppToast("Dispense Complete. Ready for payment.", "success");
+            // Mirror progress
+            document.getElementById('pay-timer-text').innerText = `${pct}%`;
+            document.getElementById('pay-timer-circle').style.strokeDashoffset = 314 - (314 * (pct / 100));
+          }
+
+          if (data.status === 'complete' || pct >= 100) {
+            if (sessionPoller) {
+              clearInterval(sessionPoller);
+              sessionPoller = null;
+            }
+            showPaymentComplete();
+          }
+        } catch (e) {
+          console.error("Session polling error:", e);
         }
-      });
+      }, 1000);
     }
 
-    window.triggerPayment = function (btn) {
-      if (btn.innerText === "Pay with UPI") {
-        const payeeName = encodeURIComponent("RefillX");
-        const upiId = "paytmqr2810050501011o9466j4yecn@paytm";
-        const amount = window.ORDER.amount.toFixed(2);
-        const note = encodeURIComponent(`RefillX Order ${window.CURRENT_SID}`);
-        window.location.href = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${amount}&cu=INR&tn=${note}`;
+    window.openUPIApp = function () {
+      const upiId = "9039878046-1@nyes";
+      const payeeName = encodeURIComponent("Abhigyan");
+      const amount = (window.ORDER && window.ORDER.amount) ? window.ORDER.amount.toFixed(2) : "0.00";
+      const note = encodeURIComponent(`RefillX Order ${window.CURRENT_SID || 'RX-001'}`);
+      const upiLink = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${amount}&cu=INR&tn=${note}`;
+      window.location.href = upiLink;
+    }
 
-        btn.innerText = "Confirm Payment";
-        btn.style.backgroundColor = "#1f6b3e";
-      } else {
-        // They clicked Confirm Payment
-        showScreen('success');
-        document.getElementById('success-desc').innerText = `${window.ORDER.quantity}ml ${PRODUCTS[window.ORDER.product].name} refilled`;
-        document.getElementById('s-pts').innerText = "+" + Math.floor(window.ORDER.quantity / 10);
-        document.getElementById('s-co2').innerText = (window.ORDER.quantity * 0.024).toFixed(1) + "g";
+    function showPaymentComplete() {
+      sessionCompleted = true;
+      if (sessionPoller) {
+        clearInterval(sessionPoller);
+        sessionPoller = null;
+      }
 
-        // Instead of directly writing status: complete locally, call the backend finalizePayment
-        btn.innerText = "Processing...";
-        btn.disabled = true;
+      showScreen('payment');
 
-        fetch(CLOUD_URL + '/api/call/finalizePayment', {
+      document.getElementById('payment-timer-ui').style.display = 'none';
+      document.getElementById('payment-action-ui').style.display = 'flex';
+
+      document.getElementById('pay-desc').innerText = `${window.ORDER.quantity}ml ${PRODUCTS[window.ORDER.product].name}`;
+      document.getElementById('pay-amount-display').innerText = `₹${window.ORDER.amount.toFixed(2)}`;
+
+      const upiId = "9039878046-1@nyes";
+      const payeeName = encodeURIComponent("Abhigyan");
+      const amount = window.ORDER.amount.toFixed(2);
+      const note = encodeURIComponent(`RefillX Order ${window.CURRENT_SID || 'RX-001'}`);
+      const upiLink = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${amount}&cu=INR&tn=${note}`;
+
+      const qrContainer = document.getElementById('upi-qrcode');
+      if (qrContainer) {
+        qrContainer.innerHTML = "";
+        if (typeof QRCode !== 'undefined') {
+          new QRCode(qrContainer, {
+            text: upiLink,
+            width: 160,
+            height: 160,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+          });
+        }
+      }
+
+      window.showInAppToast("Dispense complete! Scan UPI QR code to pay. 🎉", "success");
+    }
+
+    window.confirmUPIPayment = async function (btn) {
+      if (!btn) btn = document.querySelector('#payment-action-ui button:last-child');
+      if (btn) { btn.innerText = "Confirming..."; btn.disabled = true; }
+
+      currentSessionId = window.CURRENT_SID;
+      currentUserId = window.getUserId();
+      const qty = window.ORDER ? window.ORDER.quantity : 500;
+
+      // 1. Update Supabase directly
+      if (window.supabase && currentSessionId) {
+        try {
+          await window.supabase
+            .from('sessions')
+            .update({ status: 'paid', paid_at: new Date().toISOString() })
+            .eq('id', currentSessionId);
+        } catch (sbErr) {
+          console.warn('Supabase session status update warning:', sbErr);
+        }
+      }
+
+      // 2. Local server backup
+      try {
+        await fetch(CLOUD_URL + '/api/payment-confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: currentSessionId, status: 'paid' })
+        });
+      } catch (e) {
+        console.warn('Local server unreachable, Supabase already updated');
+      }
+
+      // 3. Save points to Supabase
+      const pts = await savePointsToSupabase(currentUserId, qty, currentSessionId);
+
+      // 4. Update Success screen UI
+      showScreen('success');
+      document.getElementById('success-desc').innerText = `${qty}ml ${PRODUCTS[window.ORDER.product].name} refilled`;
+      document.getElementById('s-pts').innerText = "+" + pts;
+      document.getElementById('s-co2').innerText = (qty * 0.083).toFixed(1) + "g";
+
+      // 5. Finalize payment backend call
+      try {
+        const finalizeRes = await fetch(CLOUD_URL + '/api/call/finalizePayment', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             data: {
-              sid: window.CURRENT_SID,
-              uid: window.USER.uid,
+              sid: currentSessionId,
+              uid: currentUserId,
               usePoints: document.getElementById('m-points-toggle') ? document.getElementById('m-points-toggle').checked : false,
               clientTotal: window.ORDER.amount
             }
           })
-        }).then(res => res.json()).then(result => {
-          btn.innerText = "Pay with UPI";
-          btn.disabled = false;
-          btn.style.backgroundColor = "";
-          if (result.error) {
-            window.showInAppToast(result.error, "error");
-          } else {
-            // Status 'paid' is written by backend
-          }
-        }).catch(err => {
-          btn.innerText = "Pay with UPI";
-          btn.disabled = false;
-          btn.style.backgroundColor = "";
-          window.showInAppToast("Error finalizing payment", "error");
         });
+        const result = await finalizeRes.json();
+        if (btn) { btn.innerText = "Confirm Payment ✓"; btn.disabled = false; }
+        const userEm = (window.USER && window.USER.email) ? window.USER.email : (result.email || "your email");
+        window.showInAppToast("Receipt sent to " + userEm + " 📩", "success");
+      } catch (err) {
+        if (btn) { btn.innerText = "Confirm Payment ✓"; btn.disabled = false; }
+        window.showInAppToast("Payment recorded successfully!", "success");
       }
     }
+    window.triggerPayment = window.confirmUPIPayment;
     window.finishSuccess = function () { switchNav('order', document.querySelectorAll('.nav-item')[0]); }
 
     // --- Subscriptions Feature (Prompt 3) ---
@@ -1334,33 +1878,211 @@
       }
     }
 
+    window.loadUserStats = async function () {
+      const userId = window.getUserId();
+      console.log("🔍 [PWA] Current logged-in user_id:", userId);
+      if (!userId || userId === 'UID-GUEST') {
+        console.warn("⚠️ [PWA] No valid user_id logged in for stats lookup");
+        return;
+      }
+
+      if (window.supabase) {
+        try {
+          // Query orders table (completed refills) for this user
+          const { data: orders, error: ordersErr } = await window.supabase
+            .from('orders')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+          console.log(`📦 [PWA] Returned ${orders?.length || 0} orders from Supabase for user_id '${userId}':`, orders, ordersErr);
+
+          if (orders && orders.length > 0) {
+            window.rxHistory = orders;
+          } else {
+            // Fallback: try sessions table
+            const { data: sessions } = await window.supabase
+              .from('sessions')
+              .select('*')
+              .eq('user_id', userId)
+              .eq('status', 'complete')
+              .order('created_at', { ascending: false });
+
+            console.log(`🔁 [PWA Fallback] Returned ${sessions?.length || 0} sessions for user_id '${userId}'`, sessions);
+            if (sessions && sessions.length > 0) {
+              window.rxHistory = sessions;
+            } else {
+              window.rxHistory = [];
+            }
+          }
+
+          // Load current points balance
+          const { data: userData } = await window.supabase
+            .from('users')
+            .select('points')
+            .eq('id', userId)
+            .single();
+
+          if (userData && userData.points !== undefined) {
+            window.rxPoints = userData.points;
+            console.log(`⭐ [PWA] Loaded total_eco_points from Supabase: ${userData.points}`);
+          }
+        } catch (e) {
+          console.warn("Supabase user stats query exception:", e);
+        }
+      }
+    };
+
+    window.finishSuccess = function () {
+      window.stopAllCameraTracks();
+      window.CURRENT_SID = null;
+      window.sessionCompleted = false;
+      window.scanCompleted = false;
+      if (window._sessionPoller) clearInterval(window._sessionPoller);
+      if (window._scanWatchdog) clearInterval(window._scanWatchdog);
+      if (window._progressPoller) clearInterval(window._progressPoller);
+
+      const navBtn = document.querySelectorAll('.nav-item')[0];
+      if (navBtn) switchNav('order', navBtn);
+      window.loadUserStats();
+    };
+
     // Render Helpers for Stats
-    window.renderHistory = function () {
-      document.getElementById('h-tot-refills').innerText = rxHistory.length;
-      document.getElementById('h-tot-plastic').innerText = rxHistory.reduce((s, h) => s + parseFloat(h.plasticSaved || 0), 0).toFixed(1);
+    window.renderHistory = async function () {
+      await window.loadUserStats();
+      const totalRefills = rxHistory.length;
+      // Extract volume accurately (handle quantity_ml vs quantity in litres)
+      const parseMl = (h) => {
+        if (h.quantity_ml !== undefined && h.quantity_ml !== null) return parseFloat(h.quantity_ml);
+        const q = parseFloat(h.quantity || 0);
+        return q > 50 ? q : q * 1000;
+      };
+      const totalMl = rxHistory.reduce((s, h) => s + parseMl(h), 0);
+      const plasticBottles = Math.floor(totalMl / ML_PER_BOTTLE);
+      const moneySaved = plasticBottles * AVG_BOTTLE_PRICE_INR;
+
+      document.getElementById('h-tot-refills').innerText = totalRefills;
+      document.getElementById('h-tot-plastic').innerText = plasticBottles;
+      document.getElementById('h-tot-money').innerText = `₹${moneySaved.toFixed(0)}`;
 
       const list = document.getElementById('h-list');
-      if (rxHistory.length === 0) list.innerHTML = `<div class="text-center p-8 mt-4 text-gray-500">No refills yet</div>`;
-      else list.innerHTML = rxHistory.slice().reverse().map(h => `
-          <div class="bg-[#111] p-4 rounded-xl border-l-4 border-y border-r border-[#222]" style="border-left-color: ${PRODUCTS[h.product].color}">
-            <div class="flex justify-between mb-2"><span class="font-bold">${PRODUCTS[h.product].icon} ${PRODUCTS[h.product].name}</span><span class="text-[#3ecf7a] font-bold">₹${h.amount}</span></div>
-            <div class="flex justify-between text-xs text-gray-400 mb-3"><span>${h.quantity}ml</span><span>${new Date(h.timestamp).toLocaleString()}</span></div>
-          </div>
-      `).join('');
+      if (totalRefills === 0) {
+        list.innerHTML = `<div class="text-center p-8 mt-4 text-gray-500 font-bold">No refills recorded yet</div>`;
+      } else {
+        list.innerHTML = rxHistory.slice().map(h => {
+          const qty = parseMl(h);
+          const pKey = (h.product || h.productName || 'shampoo').toLowerCase();
+          const prodObj = PRODUCTS[pKey] || { name: h.productName || h.product || 'Dispense', icon: '💧', color: '#3ecf7a' };
+          const amt = parseFloat(h.price || h.amountPaid || h.amount || 0);
+          const pts = h.points_earned !== undefined ? h.points_earned : (h.pointsEarned !== undefined ? h.pointsEarned : (Math.floor(qty / 100) * 10 + Math.floor(qty / 500) * 25));
+          const co2 = (qty * 0.083).toFixed(1);
+          const dtStr = h.created_at ? new Date(h.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : (h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN') : 'Recent');
+
+          return `
+            <div class="bg-[#111] p-4 rounded-xl border-l-4 border-y border-r border-[#222]" style="border-left-color: ${prodObj.color}">
+              <div class="flex justify-between items-center mb-1">
+                <span class="font-bold text-white text-base">${prodObj.icon} ${prodObj.name} — ${qty.toFixed(0)}ml</span>
+                <span class="text-[#3ecf7a] font-bold text-base font-mono">₹${amt.toFixed(2)}</span>
+              </div>
+              <div class="flex justify-between items-center text-xs text-gray-400 mb-2">
+                <span>Station: RFX-001</span>
+                <span>${dtStr}</span>
+              </div>
+              <div class="flex justify-between items-center text-xs pt-2 border-t border-[#222]">
+                <span class="text-[#f0b429] font-bold">+${pts} pts</span>
+                <span class="text-[#86efac] font-bold">🌱 ${co2}g CO₂ saved</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    };
+
+    window.renderEcoPassport = async function () {
+      await window.loadUserStats();
+      if (window.USER) document.getElementById('ep-name').innerText = window.USER.name || 'Valued User';
+
+      const parseMl = (h) => {
+        if (h.quantity_ml !== undefined && h.quantity_ml !== null) return parseFloat(h.quantity_ml);
+        const q = parseFloat(h.quantity || 0);
+        return q > 50 ? q : q * 1000;
+      };
+      const totalMl = rxHistory.reduce((s, h) => s + parseMl(h), 0);
+      const plasticBottles = Math.floor(totalMl / ML_PER_BOTTLE);
+      const totalCo2Grams = totalMl * 0.083;
+      const totalLitres = totalMl / 1000;
+      const totalPts = window.rxPoints !== undefined ? window.rxPoints : rxHistory.reduce((s, h) => s + (h.points_earned || h.pointsEarned || 0), 0);
+
+      // Badge Progression
+      let tierName = "BRONZE";
+      let tierColor = "#cd7f32";
+      if (totalPts >= 1000) { tierName = "PLATINUM"; tierColor = "#e5e4e2"; }
+      else if (totalPts >= 500) { tierName = "GOLD"; tierColor = "#ffd700"; }
+      else if (totalPts >= 100) { tierName = "SILVER"; tierColor = "#c0c0c0"; }
+
+      const badgeEl = document.getElementById('ep-tier-badge');
+      if (badgeEl) {
+        badgeEl.innerText = tierName;
+        badgeEl.style.color = tierColor;
+        badgeEl.style.borderColor = tierColor;
+      }
+
+      document.getElementById('ep-bottles').innerText = plasticBottles;
+      document.getElementById('ep-co2').innerText = totalCo2Grams >= 1000 ? (totalCo2Grams / 1000).toFixed(2) + "kg" : totalCo2Grams.toFixed(0) + "g";
+      document.getElementById('ep-litres').innerText = totalLitres.toFixed(1) + "L";
+      document.getElementById('ep-pts').innerText = totalPts;
+
+      // Progress bar toward next 500-pt free refill
+      const ptsToNextRedemption = REDEMPTION_THRESHOLD - (totalPts % REDEMPTION_THRESHOLD);
+      const progressPct = ((totalPts % REDEMPTION_THRESHOLD) / REDEMPTION_THRESHOLD) * 100;
+      const progressBar = document.getElementById('ep-progress-bar');
+      const progressLabel = document.getElementById('ep-progress-label');
+      const redeemBtn = document.getElementById('ep-redeem-btn');
+      if (progressBar) progressBar.style.width = Math.min(100, progressPct) + '%';
+      if (progressLabel) {
+        if (totalPts >= REDEMPTION_THRESHOLD) {
+          progressLabel.innerText = `🎉 Free refill ready! You have ${Math.floor(totalPts / REDEMPTION_THRESHOLD)} to redeem.`;
+        } else {
+          progressLabel.innerText = `${totalPts % REDEMPTION_THRESHOLD} / ${REDEMPTION_THRESHOLD} pts — ${ptsToNextRedemption} more for a free refill`;
+        }
+      }
+      if (redeemBtn) {
+        redeemBtn.disabled = totalPts < REDEMPTION_THRESHOLD;
+        redeemBtn.classList.toggle('opacity-40', totalPts < REDEMPTION_THRESHOLD);
+        redeemBtn.classList.toggle('cursor-not-allowed', totalPts < REDEMPTION_THRESHOLD);
+      }
     }
 
-    window.renderEcoPassport = function () {
-      document.getElementById('ep-name').innerText = window.USER.name;
-      document.getElementById('ep-tier-badge').innerText = rxTier.name.toUpperCase();
-
-      let bSaved = 0, cSaved = 0, lRefilled = 0, pts = 0;
-      rxHistory.forEach(h => { bSaved += parseFloat(h.plasticSaved || 0); cSaved += parseFloat(h.co2Saved || 0); lRefilled += h.quantity; pts += h.pointsEarned || 0; });
-
-      document.getElementById('ep-bottles').innerText = bSaved.toFixed(1);
-      document.getElementById('ep-co2').innerText = cSaved.toFixed(0) + "g";
-      document.getElementById('ep-litres').innerText = (lRefilled / 1000).toFixed(1) + "L";
-      document.getElementById('ep-pts').innerText = pts;
-    }
+    // Redeem 500 points for a free refill
+    window.redeemFreeRefill = async function () {
+      const userId = window.USER?.id || window.USER?.uid;
+      const totalPts = window.rxPoints || 0;
+      if (totalPts < REDEMPTION_THRESHOLD) {
+        alert(`You need at least ${REDEMPTION_THRESHOLD} points to redeem. You have ${totalPts}.`);
+        return;
+      }
+      const newTotal = totalPts - REDEMPTION_THRESHOLD;
+      try {
+        if (window.supabase) {
+          await window.supabase.from('users').update({ points: newTotal }).eq('id', userId);
+          // Log redemption to a history note
+          await window.supabase.from('orders').insert({
+            user_id: userId,
+            product: 'free_refill',
+            quantity_ml: 1000,
+            price: 0,
+            status: 'redeemed',
+            created_at: new Date().toISOString()
+          });
+        }
+        window.rxPoints = newTotal;
+        window.showInAppToast(`✅ Redeemed! 500 pts used. ${newTotal} pts remaining.`, 'success');
+        await window.renderEcoPassport();
+      } catch (e) {
+        console.error('Redemption failed:', e);
+        alert('Redemption failed. Please try again.');
+      }
+    };
 
     window.renderRewards = function () {
       renderSubList();

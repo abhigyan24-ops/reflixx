@@ -585,11 +585,12 @@ exports.topUpWallet = (0, https_1.onCall)(async (request) => {
 exports.scheduledAISync = (0, scheduler_1.onSchedule)("every 6 hours", async (event) => {
     logger.info("scheduledAISync cron triggered", { scheduleTime: event.scheduleTime });
     try {
-        // In local simulation, ML host is localhost:8080. Fallbacks skip gracefully if down.
+        // ML host is configurable via ML_SERVICE_URL env var; defaults to localhost for local dev.
+        const ML_HOST = process.env.ML_SERVICE_URL || 'http://127.0.0.1:8080';
         const dispensersSnap = await admin.firestore().collection("dispensers").get();
         for (const dispenserDoc of dispensersSnap.docs) {
             const machineId = dispenserDoc.id;
-            const fetchUrl = `http://127.0.0.1:8080/api/forecast/${machineId}`;
+            const fetchUrl = `${ML_HOST}/api/forecast/${machineId}`;
             try {
                 // Fetch forecast from Flask ML microservice (3B.7)
                 // Since we want to make it non-blocking and robust if the server is offline:

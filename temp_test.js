@@ -463,7 +463,7 @@ function safeAddListener(id, event, handler) {
     
     
 
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && !location.hostname.endsWith('loca.lt')) {
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && !location.hostname.endsWith('loca.lt') && !location.hostname.endsWith('.ngrok-free.app') && !location.hostname.endsWith('.ngrok.io') && !location.hostname.endsWith('.trycloudflare.com')) {
         setTimeout(() => showToast('Camera requires HTTPS. Please use the secure URL.'), 1000);
     }
 
@@ -826,10 +826,10 @@ function scanFrame(timestamp) {
       };
       
       try {
-        const res = await fetch('/send-receipt', {
+        const res = await fetch(CLOUD_URL + '/api/call/sendReceipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({ data: payload })
         });
         const data = await res.json();
         

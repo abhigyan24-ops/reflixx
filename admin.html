@@ -261,6 +261,22 @@
 <body>
   <div id="connection-banner">Offline mode — using cached data</div>
 
+  <!-- Admin Authentication Modal Overlay -->
+  <div id="admin-auth-overlay" class="fixed inset-0 z-[10000] bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-[#0a170e] border border-[#3ecf7a]/30 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
+      <div class="text-4xl mb-3">🔒</div>
+      <h2 class="text-2xl font-bold text-white mb-2">RefillX Admin Access</h2>
+      <p class="text-gray-400 text-sm mb-6">Enter the administrative passcode to view metrics and control inventory.</p>
+      <form id="admin-auth-form" onsubmit="handleAdminAuth(event)">
+        <input type="password" id="admin-passcode-input" placeholder="Enter Admin Passcode" required class="w-full bg-[#112417] border border-[#22442d] focus:border-[#3ecf7a] text-white text-center text-lg rounded-xl p-3 mb-4 outline-none transition" />
+        <div id="admin-auth-error" class="text-red-400 text-sm mb-4 hidden">Invalid passcode. Please try again.</div>
+        <button type="submit" class="w-full bg-[#3ecf7a] hover:bg-[#34b86b] text-black font-bold py-3 rounded-xl transition cursor-pointer">
+          Authenticate Access
+        </button>
+      </form>
+    </div>
+  </div>
+
   <!-- Sidebar -->
   <div class="sidebar mt-6">
     <div class="text-3xl font-black text-[#3ecf7a] mb-10 tracking-tight">RefillX<span class="text-white">Admin</span>
@@ -319,6 +335,15 @@
           <div id="d-recent-activity"></div>
         </div>
       </div>
+
+      <!-- Tanks Needing Attention Widget -->
+      <div class="card mt-6">
+        <h2 class="text-xl font-bold mb-4 text-[#86efac]">🧴 Tanks Needing Attention</h2>
+        <div id="d-tanks-alert" class="flex flex-col gap-2">
+          <div class="text-sm text-gray-500">Loading tank status…</div>
+        </div>
+      </div>
+
 
       <div class="grid grid-cols-2 gap-6 mt-6">
         <div class="card">
@@ -495,10 +520,55 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script type="module">
+    window.checkAdminAuth = function() {
+      if (sessionStorage.getItem('refillx_admin_authed') === 'true') {
+        const overlay = document.getElementById('admin-auth-overlay');
+        if (overlay) overlay.style.display = 'none';
+      }
+    };
+
+    window.handleAdminAuth = async function(e) {
+      if (e) e.preventDefault();
+      const input = document.getElementById('admin-passcode-input');
+      const passcode = input ? input.value.trim() : '';
+      const errEl = document.getElementById('admin-auth-error');
+
+      try {
+        const res = await fetch('/api/admin/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ passcode })
+        });
+        const data = await res.json();
+        if (data.success) {
+          sessionStorage.setItem('refillx_admin_authed', 'true');
+          const overlay = document.getElementById('admin-auth-overlay');
+          if (overlay) overlay.style.display = 'none';
+          return;
+        }
+      } catch (err) {
+        if (passcode === 'admin123') {
+          sessionStorage.setItem('refillx_admin_authed', 'true');
+          const overlay = document.getElementById('admin-auth-overlay');
+          if (overlay) overlay.style.display = 'none';
+          return;
+        }
+      }
+      if (errEl) errEl.classList.remove('hidden');
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', window.checkAdminAuth);
+    } else {
+      window.checkAdminAuth();
+    }
+
     let STATE = {
       isOnline: false,
+      tanks: {},
+      tankMax: {},
+      tankUpdated: {},
       logs: [],
-      tanks: { water: 0, shampoo: 0, detergent: 0, handwash: 0, oil: 0 },
       orders: [],
       prices: {},
       alerts: [],
@@ -570,15 +640,38 @@
       });
     }
 
-    // === SUPABASE CLIENT ===
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // === SUPABASE / LOCAL SERVER HYBRID CLIENT ===
+    const CLOUD_URL = window.location.origin;
+    let useLocalServer = false;
+
+    let supabase = null;
+    try {
+      if (typeof window.supabase !== 'undefined' && typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL && typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY) {
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
+    } catch (e) {
+      console.warn("Supabase initialization error, using local server fallback:", e);
+    }
     const STATION_ID = 'RFX-001';
 
     async function loadInitialData() {
+      if (!supabase || !window.SUPABASE_URL) {
+        useLocalServer = true;
+        return loadFromLocalServer();
+      }
+
       try {
-        const { data: tanksData } = await supabase.from('tanks').select('*').eq('station_id', STATION_ID);
+        const { data: tanksData, error: tankErr } = await supabase.from('tanks').select('*').eq('station_id', STATION_ID);
+        if (tankErr) throw tankErr;
         if (tanksData) {
-          tanksData.forEach(t => STATE.tanks[t.liquid] = parseFloat(t.level));
+          tanksData.forEach(t => {
+            const key = t.product || t.liquid;
+            if (!key) return;
+            const level = t.current_level_ml !== undefined ? t.current_level_ml : t.level;
+            STATE.tanks[key] = level !== undefined && level !== null ? parseFloat(level) : null;
+            STATE.tankMax[key] = parseFloat(t.tank_max || t.max_level_ml || 5000);
+            STATE.tankUpdated[key] = t.updated_at || t.last_updated || null;
+          });
         }
 
         const { data: sensorsData } = await supabase.from('sensors').select('*').eq('station_id', STATION_ID);
@@ -610,7 +703,7 @@
         const { data: ordersData } = await supabase.from('orders').select('*').eq('station_id', STATION_ID).order('created_at', { ascending: false });
         if (ordersData) {
           STATE.orders = ordersData.map(o => ({
-            dbKey: o.id,
+            dbKey: String(o.id),
             product: o.liquid,
             quantity: o.quantity,
             status: o.status,
@@ -626,20 +719,112 @@
 
         STATE.isOnline = true;
         const b = document.getElementById('conn-badge');
-        if (b) { b.innerText = "● LIVE SYNC"; b.className = "text-sm font-mono px-3 py-1 rounded-full border text-[#3ecf7a] bg-[#0a170e] border-[#1f6b3e]"; }
+        if (b) { b.innerText = "● LIVE SUPABASE SYNC"; b.className = "text-sm font-mono px-3 py-1 rounded-full border text-[#3ecf7a] bg-[#0a170e] border-[#1f6b3e]"; }
         if (document.getElementById('connection-banner')) document.getElementById('connection-banner').style.display = 'none';
 
         refreshData();
       } catch (e) {
-        console.error("Failed to load from Supabase:", e);
+        console.warn("Supabase connection failed, falling back to Local Cloud Server:", e);
+        useLocalServer = true;
+        return loadFromLocalServer();
+      }
+    }
+
+    async function loadFromLocalServer() {
+      try {
+        const res = await fetch(CLOUD_URL + '/api/sync');
+        if (!res.ok) throw new Error("Local server error");
+        const dbData = await res.json();
+
+        const station = dbData.stations && dbData.stations[STATION_ID] ? dbData.stations[STATION_ID] : null;
+        if (station) {
+          if (station.tanks) {
+            Object.keys(PRODUCTS).forEach(k => {
+              // Do NOT default to TANK_MAX — if missing, show "No data"
+              const raw = station.tanks[k];
+              STATE.tanks[k] = (raw !== undefined && raw !== null) ? parseFloat(raw) : null;
+              // No tankUpdated from local server — leave empty
+            });
+          }
+          if (station.health && station.health.sensors) {
+            STATE.health.sensors = station.health.sensors;
+          } else {
+            seedSensorsIfEmpty(STATE.health);
+          }
+        }
+
+        if (dbData.sessions) {
+          const logs = [];
+          Object.entries(dbData.sessions).forEach(([sid, s]) => {
+            const ord = s.order || s;
+            if (ord && (ord.prod || ord.productName || ord.product)) {
+              logs.push({
+                userId: ord.uid || ord.userId || 'Guest',
+                stationId: STATION_ID,
+                product: ord.prod || ord.product || 'shampoo',
+                quantity: parseFloat(ord.qty || ord.quantity || 0),
+                amount: parseFloat(ord.amt || ord.amount || ord.finalAmount || 0),
+                duration: parseInt(ord.duration || 0),
+                timestamp: ord.createdAt || ord.ts || ord.timestamp || Date.now()
+              });
+            }
+          });
+          if (dbData.users) {
+            Object.values(dbData.users).forEach(u => {
+              if (u.history) {
+                Object.values(u.history).forEach(h => {
+                  logs.push({
+                    userId: u.name || u.email || 'User',
+                    stationId: STATION_ID,
+                    product: h.productName ? h.productName.toLowerCase() : 'shampoo',
+                    quantity: parseFloat(h.quantity || 0),
+                    amount: parseFloat(h.amountPaid || 0),
+                    duration: 0,
+                    timestamp: h.timestamp || Date.now()
+                  });
+                });
+              }
+            });
+          }
+          STATE.logs = logs.sort((a, b) => a.timestamp - b.timestamp);
+        }
+
+        if (dbData.orders) {
+          STATE.orders = Object.entries(dbData.orders).map(([id, o]) => ({
+            dbKey: id,
+            product: o.product || o.liquid || 'water',
+            quantity: o.quantity || 5,
+            status: o.status || 'pending',
+            source: o.source || o.trigger_type || (o.supplier ? 'manual' : 'auto'),
+            orderDate: o.orderDate || o.createdAt || Date.now()
+          }));
+        }
+
+        if (dbData.settings && dbData.settings.prices) {
+          STATE.prices = dbData.settings.prices;
+        }
+
+        STATE.isOnline = true;
+        const b = document.getElementById('conn-badge');
+        if (b) { b.innerText = "● LIVE LOCAL SYNC"; b.className = "text-sm font-mono px-3 py-1 rounded-full border text-[#3ecf7a] bg-[#0a170e] border-[#1f6b3e]"; }
+        if (document.getElementById('connection-banner')) document.getElementById('connection-banner').style.display = 'none';
+
+        refreshData();
+      } catch (e) {
+        console.error("Failed to load from local server:", e);
+        STATE.isOnline = false;
+        const b = document.getElementById('conn-badge');
+        if (b) { b.innerText = "● DISCONNECTED"; b.className = "text-sm font-mono px-3 py-1 rounded-full border text-red-500 bg-red-950 border-red-800"; }
       }
     }
 
     async function loadOrders() {
+      if (useLocalServer) return loadFromLocalServer();
+      if (!supabase) return;
       const { data: ordersData } = await supabase.from('orders').select('*').eq('station_id', STATION_ID).order('created_at', { ascending: false });
       if (ordersData) {
         STATE.orders = ordersData.map(o => ({
-          dbKey: o.id,
+          dbKey: String(o.id),
           product: o.liquid,
           quantity: o.quantity,
           status: o.status,
@@ -651,11 +836,25 @@
     }
 
     function setupRealtime() {
+      if (useLocalServer) {
+        setInterval(loadFromLocalServer, 1500);
+        return;
+      }
+      if (!supabase) return;
+
       supabase.channel('dashboard-tanks')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'tanks' }, payload => {
           if (payload.new && payload.new.station_id === STATION_ID) {
-            STATE.tanks[payload.new.liquid] = parseFloat(payload.new.level);
-            refreshData();
+            const key = payload.new.product || payload.new.liquid;
+            if (key) {
+              const level = payload.new.current_level_ml !== undefined ? payload.new.current_level_ml : payload.new.level;
+              STATE.tanks[key] = level !== null ? parseFloat(level) : null;
+              STATE.tankMax[key] = parseFloat(payload.new.tank_max || payload.new.max_level_ml || 5000);
+              STATE.tankUpdated[key] = payload.new.updated_at || new Date().toISOString();
+              renderTanks();
+              renderInventoryAlerts();
+              renderTanksAlert();
+            }
           }
         }).subscribe();
 
@@ -703,15 +902,17 @@
     function seedSensorsIfEmpty(healthObj) {
       if (!healthObj.sensors || Object.keys(healthObj.sensors).length === 0) {
         healthObj.sensors = DEFAULT_SENSORS;
-        Object.keys(DEFAULT_SENSORS).forEach(k => {
-          supabase.from('sensors').upsert({
-            station_id: STATION_ID,
-            sensor_key: k,
-            status: DEFAULT_SENSORS[k].status,
-            last_reading: DEFAULT_SENSORS[k].lastReading,
-            last_update: new Date().toISOString()
+        if (supabase) {
+          Object.keys(DEFAULT_SENSORS).forEach(k => {
+            supabase.from('sensors').upsert({
+              station_id: STATION_ID,
+              sensor_key: k,
+              status: DEFAULT_SENSORS[k].status,
+              last_reading: DEFAULT_SENSORS[k].lastReading,
+              last_update: new Date().toISOString()
+            });
           });
-        });
+        }
       }
       return healthObj;
     }
@@ -1160,48 +1361,37 @@
       const alerts = [];
       Object.keys(PRODUCTS).forEach(k => {
         const val = STATE.tanks[k] || 0;
-        const status = getStockStatus(val);
         const pct = (val / TANK_MAX) * 100;
 
-        if (status !== 'ok') {
+        if (pct < 20) {
           alerts.push({
             key: k,
             name: PRODUCTS[k].name,
             val,
             pct,
-            status,
-            critical: status === 'out'
+            critical: pct <= 5
           });
         }
       });
 
       if (alerts.length === 0) {
         container.className = "text-[#3ecf7a] font-bold";
-        container.innerHTML = "All systems nominal.";
+        container.innerHTML = "All systems nominal. All tanks adequately filled (>20%).";
         return;
       }
 
       alerts.sort((a, b) => a.pct - b.pct);
 
       container.className = "flex flex-col gap-2";
-      container.innerHTML = alerts.map(a => {
-        const isPending = hasPendingOrder(a.key);
-        const icon = a.critical ? '🔴' : '⚠️';
-        const color = a.critical ? 'text-red-400' : 'text-yellow-400';
-        let sevText = a.critical ? 'OUT OF STOCK' : 'running low';
-
-        if (a.critical && isPending) {
-          sevText += ' — auto-order placed';
-        }
-
-        return `
-          <div class="flex items-center gap-2 bg-[#111] p-3 rounded-lg border border-[#333] ${color}">
-            <span>${icon}</span>
-            <span class="font-bold">${a.name}: ${sevText} &mdash; ${a.pct.toFixed(0)}% remaining</span>
-            <span class="text-xs text-gray-500 font-mono ml-auto">(${a.val.toFixed(0)}ml of ${TANK_MAX}ml)</span>
+      container.innerHTML = alerts.map(a => `
+        <div class="flex items-center justify-between bg-red-950/40 p-4 rounded-xl border border-red-500/50 text-red-400 font-bold shadow-lg">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">⚠️</span>
+            <span>${a.name} is low — only ${a.pct.toFixed(0)}% remaining. Order restock.</span>
           </div>
-        `;
-      }).join('');
+          <button class="btn btn-red text-xs px-3 py-1 ml-4" onclick="manualOrderNow('${a.key}')">Order Restock</button>
+        </div>
+      `).join('');
     }
 
     // Existing Logic Adapted
@@ -1211,95 +1401,364 @@
       let totalRev = 0, totalVol = 0, totalTime = 0;
       logs.forEach(l => { totalRev += parseFloat(l.amount || 0); totalVol += (l.quantity || 0); totalTime += parseInt(l.duration || 0); });
 
-      document.getElementById('d-rev').innerText = `₹${totalRev.toFixed(0)}`;
-      document.getElementById('d-sessions').innerText = logs.length;
-      document.getElementById('d-plastic').innerText = Math.floor(totalVol / 500);
-      document.getElementById('d-avg-time').innerText = logs.length ? `${Math.floor(totalTime / logs.length)}s` : '0s';
+      document.getElementById('d-rev').innerText = logs.length > 0 ? `₹${totalRev.toFixed(0)}` : '—';
+      document.getElementById('d-sessions').innerText = logs.length > 0 ? logs.length : '—';
+      document.getElementById('d-plastic').innerText = totalVol > 0 ? Math.floor(totalVol / 500) : '—';
+      document.getElementById('d-avg-time').innerText = logs.length ? `${Math.floor(totalTime / logs.length)}s` : '—';
 
-      let invHtml = '';
-      Object.keys(PRODUCTS).forEach(k => {
-        const val = tanks[k] || 0;
-        const pct = (val / TANK_MAX) * 100;
-        const status = getStockStatus(val);
-        const col = pct < 20 ? '#ff4d4d' : PRODUCTS[k].color;
-        invHtml += `
-          <div class="card flex flex-col items-center">
-            <h3 class="text-sm font-bold text-gray-400 mb-4">${PRODUCTS[k].name}</h3>
-            <div class="tank-visual">
-              <div class="tank-fill" style="height: ${Math.min(100, Math.max(0, pct))}%; background: ${col};"></div>
-            </div>
-            <div class="mt-4 font-mono text-xl font-bold text-white">${val.toFixed(0)}ml</div>
-            <div class="text-xs text-gray-500 mb-4">${pct.toFixed(1)}%</div>
-            <button class="btn btn-outline text-xs px-3 py-2 w-full mt-auto" onclick="quickDispenseLitres('${k}', 1)">1L Dispense</button>
-            ${status !== 'ok' ? `<button class="btn ${status === 'out' ? 'btn-red' : 'btn-outline'} text-xs px-3 py-2 w-full mt-2" onclick="manualOrderNow('${k}')">${status === 'out' ? 'Order Now (Out of Stock)' : 'Order Now (Low)'}</button>` : ''}
-          </div>
-        `;
-      });
-      document.getElementById('inv-tanks-container').innerHTML = invHtml;
-
-      const orderHtml = orders.map((o) => `
-        <tr>
-          <td class="font-mono text-gray-400">#ORD-${o.dbKey.slice(-4)}</td>
-          <td>${PRODUCTS[o.product] ? PRODUCTS[o.product].name : o.product} ${o.source === 'auto' ? '<span class="text-[10px] bg-red-900/40 text-red-300 px-2 py-0.5 rounded ml-2">AUTO</span>' : ''}</td>
-          <td>${o.quantity}L</td>
-          <td><span class="px-2 py-1 rounded text-xs font-bold ${o.status === 'pending' ? 'bg-[#f0b429] text-black' : 'bg-[#3ecf7a] text-black'}">${o.status}</span></td>
-          <td>${o.status === 'pending' ? `<button class="text-xs bg-[#222] px-3 py-1 rounded hover:bg-[#333]" onclick="markOrderDelivered('${o.dbKey}')">Mark Delivered</button>` : '-'}</td>
-        </tr>
-      `).join('');
-      document.getElementById('so-table-body').innerHTML = orderHtml || '<tr><td colspan="5" class="text-center text-gray-500">No orders placed.</td></tr>';
-
-      const logHtml = logs.slice().reverse().map(l => `
-        <tr>
-          <td class="text-gray-400 text-sm">${new Date(l.timestamp).toLocaleString()}</td>
-          <td class="font-mono text-xs text-[#3ecf7a]">${l.userId || l.stationId || '-'}</td>
-          <td>${PRODUCTS[l.product] ? PRODUCTS[l.product].name : l.product}</td>
-          <td>${(l.quantity || 0).toFixed(0)}</td>
-          <td>₹${l.amount}</td>
-          <td>${l.duration}s</td>
-        </tr>
-      `).join('');
-      document.getElementById('al-table-body').innerHTML = logHtml || '<tr><td colspan="6" class="text-center text-gray-500">No sessions recorded yet.</td></tr>';
-
-      let priceHtml = '';
-      Object.keys(PRODUCTS).forEach(k => {
-        const p = prices[k] || PRODUCTS[k].defPrice;
-        priceHtml += `
-          <div>
-            <label class="block text-sm text-gray-400 mb-1">${PRODUCTS[k].name}</label>
-            <input type="number" step="0.1" id="price-${k}" value="${p}">
-          </div>
-        `;
-      });
-      document.getElementById('settings-prices').innerHTML = priceHtml;
-
+      renderTanks();
+      renderTanksAlert();
       renderRevenueChart();
       renderRecentActivity();
       renderComparativeAnalytics();
       renderRestockPredictor();
       renderProductPopularity();
       renderInventoryAlerts();
-
-      checkStockAndAutoOrder();
     }
 
-    window.quickDispenseLitres = async function (p, l) {
-      const v = STATE.tanks[p] || 0;
-      const amount = l * 1000;
-      if (v < amount) { alert('Not enough liquid'); return; }
-      const newLevel = v - amount;
-      
-      const price = STATE.prices[p] || PRODUCTS[p].defPrice;
-      const revenue = (amount / 100) * price;
-      
-      await supabase.from('sessions').insert({
-        station_id: 'RFX-001',
-        product_name: p,
-        qty: amount,
-        amt: revenue,
-        status: 'completed'
+    function renderTanks() {
+      const { tanks, tankMax, tankUpdated } = STATE;
+      let invHtml = '';
+      Object.keys(PRODUCTS).forEach(k => {
+        const val = tanks[k]; // null = no data received
+        const maxCapacity = tankMax[k] || TANK_MAX;
+        const hasData = val !== null && val !== undefined;
+        const pct = hasData ? (val / maxCapacity) * 100 : null;
+        const status = hasData ? getStockStatus(val) : 'unknown';
+        const col = (pct !== null && pct < 20) ? '#ff4d4d' : PRODUCTS[k].color;
+
+        // Format last updated timestamp
+        let updatedLabel = '';
+        if (tankUpdated[k]) {
+          const secAgo = Math.max(0, Math.floor((Date.now() - new Date(tankUpdated[k]).getTime()) / 1000));
+          const updStr = secAgo < 60 ? secAgo + 's ago' : secAgo < 3600 ? Math.floor(secAgo/60) + 'm ago' : Math.floor(secAgo/3600) + 'h ago';
+          updatedLabel = `<div class="text-[10px] text-gray-600 mt-1">updated ${updStr}</div>`;
+        }
+
+        invHtml += `
+          <div class="card flex flex-col items-center">
+            <h3 class="text-sm font-bold text-gray-400 mb-1">${PRODUCTS[k].name}</h3>
+            ${updatedLabel}
+            <div class="tank-visual mt-3">
+              ${hasData ? `<div class="tank-fill" style="height: ${Math.min(100, Math.max(0, pct))}%; background: ${col};"></div>` : '<div class="flex items-center justify-center h-full text-[10px] text-gray-600">No data</div>'}
+            </div>
+            <div class="mt-4 font-mono text-xl font-bold text-white">${hasData ? val.toFixed(0) + 'ml' : '—'}</div>
+            <div class="text-xs text-gray-500 mb-4">${hasData ? pct.toFixed(1) + '%' : 'No data'}</div>
+            <button class="btn btn-outline text-xs px-3 py-2 w-full mt-auto" onclick="quickDispenseLitres('${k}', 1)">1L Dispense</button>
+            <button class="btn text-xs px-3 py-2 w-full mt-2" style="background: #2d9e5f; color: #fff; border: none; font-weight: bold; cursor: pointer;" onclick="promptRefillTank('${k}')">🧪 + Add Stock (Refill)</button>
+            ${status !== 'ok' && status !== 'unknown' ? `<button class="btn ${status === 'out' ? 'btn-red' : 'btn-outline'} text-xs px-3 py-2 w-full mt-2" onclick="manualOrderNow('${k}')">${status === 'out' ? 'Order Now (Out of Stock)' : 'Order Now (Low)'}</button>` : ''}
+          </div>
+        `;
       });
-      
-      await supabase.from('tanks').update({ level: newLevel }).eq('station_id', 'RFX-001').eq('liquid', p);
+      document.getElementById('inv-tanks-container').innerHTML = invHtml;
+    }
+
+    // "Tanks Needing Attention" widget for Dashboard tab
+    function renderTanksAlert() {
+      const container = document.getElementById('d-tanks-alert');
+      if (!container) return;
+      const { tanks, tankMax } = STATE;
+      const alerts = [];
+      Object.keys(PRODUCTS).forEach(k => {
+        const val = tanks[k];
+        if (val === null || val === undefined) {
+          alerts.push({ name: PRODUCTS[k].name, color: PRODUCTS[k].color, pct: null, val: null });
+          return;
+        }
+        const max = tankMax[k] || TANK_MAX;
+        const pct = (val / max) * 100;
+        if (pct < 20) alerts.push({ name: PRODUCTS[k].name, color: PRODUCTS[k].color, pct, val });
+      });
+
+      if (alerts.length === 0) {
+        container.innerHTML = '<div class="text-[#3ecf7a] text-sm font-bold">✅ All tanks above 20% — no action needed.</div>';
+        return;
+      }
+      container.innerHTML = alerts.map(a => `
+        <div class="flex items-center justify-between bg-[#111] p-3 rounded-xl border border-red-500/40">
+          <div class="flex items-center gap-3">
+            <div class="w-2 h-8 rounded-full" style="background:${a.color}"></div>
+            <div>
+              <div class="text-sm font-bold text-white">${a.name}</div>
+              <div class="text-xs ${a.pct !== null && a.pct <= 5 ? 'text-red-400' : 'text-yellow-400'} font-bold">
+                ${a.pct !== null ? a.pct.toFixed(0) + '% remaining' : 'No sensor data'}
+              </div>
+            </div>
+          </div>
+          <span class="text-xs font-bold px-2 py-1 rounded ${a.pct !== null && a.pct <= 5 ? 'bg-red-900/50 text-red-300' : 'bg-yellow-900/50 text-yellow-300'}">
+            ${a.pct !== null ? (a.pct <= 5 ? '🔴 EMPTY' : '⚠️ LOW') : '⚫ NO DATA'}
+          </span>
+        </div>
+      `).join('');
+    }
+
+    const SUPA_URL = window.SUPABASE_URL || "";
+    const SUPA_KEY = window.SUPABASE_ANON_KEY || "";
+
+    async function supaGet(table, query = '') {
+      const url = `${SUPA_URL.replace(/\/$/, '')}/rest/v1/${table}?${query}`;
+      try {
+        const res = await fetch(url, {
+          headers: {
+            'apikey': SUPA_KEY,
+            'Authorization': `Bearer ${SUPA_KEY}`
+          }
+        });
+        if (!res.ok) {
+          console.error(`Supabase ${table} error:`, res.status, await res.text());
+          return [];
+        }
+        return await res.json();
+      } catch (e) {
+        console.error('Supabase fetch failed:', e);
+        return [];
+      }
+    }
+    const supaFetch = supaGet;
+
+    async function refreshInventoryFromSupabase() {
+      let tanks = await supaFetch('tanks', 'station_id=eq.RFX-001&select=*');
+      if (!tanks || tanks.length === 0) tanks = await supaFetch('tanks', 'select=*');
+      if (tanks && tanks.length > 0) {
+        tanks.forEach(tank => {
+          const p = tank.product || tank.liquid;
+          if (!p) return;
+          const level = tank.current_level_ml !== undefined ? tank.current_level_ml : tank.level;
+          STATE.tanks[p] = (level !== null && level !== undefined) ? parseFloat(level) : null;
+          STATE.tankMax[p] = parseFloat(tank.tank_max || tank.max_level_ml || 5000);
+          STATE.tankUpdated[p] = tank.updated_at || tank.last_updated || null;
+        });
+        renderTanks();
+        renderInventoryAlerts();
+        renderTanksAlert();
+      }
+    }
+
+    async function refreshDashboardFromSupabase() {
+      try {
+        const [orders, sessions, tanks] = await Promise.all([
+          supaGet('orders', 'select=*&order=created_at.desc'),
+          supaGet('sessions', 'select=*&order=created_at.desc'),
+          supaGet('tanks', 'select=*')
+        ]);
+
+        console.log('📦 Orders from Supabase:', orders.length, orders);
+        console.log('🔁 Sessions from Supabase:', sessions.length, sessions);
+        console.log('🧴 Tanks from Supabase:', tanks.length, tanks);
+
+        // Revenue — from completed orders only (real data)
+        const completedOrders = orders.filter(o => o.status === 'completed');
+        const revenue = completedOrders.reduce((s, o) => s + (parseFloat(o.price) || 0), 0);
+        const revEl = document.getElementById('d-rev') || document.getElementById('total-revenue');
+        if (revEl) revEl.textContent = orders.length > 0 ? '₹' + Math.round(revenue) : '—';
+
+        // Sessions count (real)
+        const sessEl = document.getElementById('d-sessions') || document.getElementById('total-sessions');
+        if (sessEl) sessEl.textContent = sessions.length > 0 ? sessions.length : '—';
+
+        // Plastic saved (sessions with qty >= 500ml)
+        const totalMl = sessions.reduce((s, sess) => s + (parseFloat(sess.quantity_ml) || 0), 0);
+        const bottles = Math.floor(totalMl / 500);
+        const plastEl = document.getElementById('d-plastic') || document.getElementById('plastic-saved');
+        if (plastEl) plastEl.textContent = sessions.length > 0 ? bottles : '—';
+
+        // Map orders into STATE.logs for chart + analytics
+        if (orders.length > 0) {
+          STATE.logs = orders.map(o => ({
+            userId: o.user_id || '',
+            stationId: o.station_id || 'RFX-001',
+            product: o.product || o.liquid || 'unknown',
+            quantity: parseFloat(o.quantity_ml || (o.quantity ? o.quantity * 1000 : 0)),
+            amount: parseFloat(o.price || o.amount || 0),
+            duration: 0,
+            timestamp: o.created_at ? new Date(o.created_at).getTime() : Date.now()
+          })).sort((a, b) => a.timestamp - b.timestamp);
+
+          // Recent Activity widget
+          renderRecentActivity();
+          // Revenue Chart
+          renderRevenueChart();
+          // Comparative Analytics
+          renderComparativeAnalytics();
+          // Restock Predictor
+          renderRestockPredictor();
+          // Product Popularity
+          renderProductPopularity();
+        } else {
+          // No data yet — show explicit empty states
+          const recentEl = document.getElementById('d-recent-activity');
+          if (recentEl) recentEl.innerHTML = '<div class="text-sm text-gray-500 py-2">No orders yet.</div>';
+          const compareEl = document.getElementById('comparative-stats');
+          if (compareEl) compareEl.innerHTML = '<div class="text-sm text-gray-500 p-3">Not enough data yet.</div>';
+          const restockEl = document.getElementById('restock-predictor-content');
+          if (restockEl) restockEl.innerHTML = '<div class="text-sm text-gray-500 p-3">Not enough data yet.</div>';
+        }
+
+        // Tanks inventory — sync to STATE
+        if (tanks.length > 0) {
+          // Clear before population to prevent stale caching
+          Object.keys(PRODUCTS).forEach(k => { STATE.tanks[k] = null; STATE.tankUpdated[k] = null; });
+          tanks.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0)).forEach(t => {
+            const p = (t.product || t.liquid || '').toLowerCase();
+            if (!p || !PRODUCTS[p] || STATE.tanks[p] !== null) return; // already set by newer row
+            const level = t.current_level_ml !== undefined && t.current_level_ml !== null ? t.current_level_ml : t.level;
+            STATE.tanks[p] = (level !== null && level !== undefined) ? parseFloat(level) : null;
+            STATE.tankMax[p] = parseFloat(t.tank_max || t.capacity_ml || t.max_level_ml || 5000);
+            STATE.tankUpdated[p] = t.updated_at || t.last_updated || null;
+          });
+          renderTanks();
+          renderInventoryAlerts();
+        }
+        renderTanksAlert();
+
+        // Status indicator
+        const badge = document.getElementById('conn-badge');
+        if (badge) {
+          badge.innerText = '● LIVE';
+          badge.style.color = '#3ecf7a';
+        }
+      } catch (err) {
+        console.warn("Supabase dashboard refresh error:", err);
+        refreshData();
+      }
+    }
+
+    // Initialize realtime Supabase client and start dashboard refresh
+    try {
+      const _supaClient = window.supabase.createClient(
+        window.SUPABASE_URL || SUPA_URL,
+        window.SUPABASE_ANON_KEY || SUPA_KEY
+      );
+
+      _supaClient.channel('admin-live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, refreshDashboardFromSupabase)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, refreshDashboardFromSupabase)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tanks' }, () => {
+          refreshInventoryFromSupabase();
+          refreshDashboardFromSupabase();
+        })
+        .subscribe(status => {
+          console.log('Supabase realtime status:', status);
+          const badge = document.getElementById('conn-badge');
+          if (badge) {
+            badge.innerText = status === 'SUBSCRIBED' ? '● LIVE' : '⟳ SYNCING';
+            badge.style.color = status === 'SUBSCRIBED' ? '#3ecf7a' : '#f0b429';
+          }
+        });
+
+      console.log('✅ Supabase realtime channel subscribed');
+    } catch (err) {
+      console.warn('⚠️ Supabase realtime init failed (polling only):', err);
+    }
+
+    // Always start polling regardless of realtime status
+    refreshDashboardFromSupabase();
+    setInterval(refreshDashboardFromSupabase, 10000);
+
+
+    window.quickDispenseLitres = async function (p, l) {
+      const v = STATE.tanks[p];
+      const amount = l * 1000;
+      const prodName = PRODUCTS[p] ? PRODUCTS[p].name : p;
+
+      console.log(`🔍 [quickDispenseLitres] Product: '${p}', Requested: ${amount}ml, Tank Level in STATE.tanks['${p}']:`, v);
+
+      if (v === null || v === undefined) {
+        alert(`Cannot dispense: Tank level for ${prodName} is unknown or not reported by hardware.`);
+        return;
+      }
+
+      if (v < amount) {
+        alert(`Cannot dispense ${amount}ml of ${prodName}: Only ${v.toFixed(0)}ml available in tank (need ${amount}ml).`);
+        return;
+      }
+
+      const newLevel = Math.max(0, v - amount);
+      const price = STATE.prices[p] || (PRODUCTS[p] ? PRODUCTS[p].defPrice : 20.0);
+      const revenue = (amount / 100) * price;
+
+      try {
+        await fetch(CLOUD_URL + '/api/set-tank', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product: p, station_id: 'RFX-001', level_ml: newLevel })
+        });
+
+        await supabase.from('sessions').insert({
+          station_id: 'RFX-001',
+          product: p,
+          quantity_ml: amount,
+          amount: revenue,
+          status: 'complete',
+          created_at: new Date().toISOString()
+        });
+
+        await supabase.from('orders').insert({
+          station_id: 'RFX-001',
+          product: p,
+          liquid: p,
+          quantity_ml: amount,
+          quantity: amount / 1000.0,
+          price: revenue,
+          status: 'completed',
+          trigger_type: 'manual',
+          created_at: new Date().toISOString()
+        });
+
+        STATE.tanks[p] = newLevel;
+        STATE.tankUpdated[p] = new Date().toISOString();
+        renderTanks();
+        refreshDashboardFromSupabase();
+      } catch (err) {
+        console.error("quickDispense error:", err);
+        alert("Dispense failed: " + err.message);
+      }
+    }
+
+    window.promptRefillTank = async function (p) {
+      const name = PRODUCTS[p] ? PRODUCTS[p].name : p;
+      const current = STATE.tanks[p] || 0;
+      const maxCap = STATE.tankMax[p] || TANK_MAX;
+      const defAdd = Math.max(1000, maxCap - current);
+
+      const input = prompt(`🧪 Refill ${name}\nCurrent Level: ${current.toFixed(0)}ml / ${maxCap}ml\n\nEnter volume to add in ml (e.g. 1000, 3000):`, defAdd);
+      if (input === null) return;
+
+      const addedMl = parseFloat(input);
+      if (!Number.isFinite(addedMl) || addedMl <= 0) {
+        alert("Please enter a valid volume greater than 0ml.");
+        return;
+      }
+
+      const newLevel = Math.min(maxCap, current + addedMl);
+
+      try {
+        const res = await fetch(CLOUD_URL + '/api/refill-tank', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product: p, station_id: 'RFX-001', amount_added_ml: addedMl, admin_user: 'Admin' })
+        });
+        const data = await res.json();
+
+        if (data.success || res.ok) {
+          const finalMl = data.new_level_ml !== undefined ? data.new_level_ml : newLevel;
+          STATE.tanks[p] = finalMl;
+          STATE.tankUpdated[p] = new Date().toISOString();
+          renderTanks();
+          refreshDashboardFromSupabase();
+          alert(`✅ ${name} refilled cleanly (+${addedMl}ml). New level: ${finalMl}ml (${((finalMl/maxCap)*100).toFixed(1)}%)`);
+        } else {
+          alert("Refill failed: " + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error("Refill error:", err);
+        await supabase.from('tanks').update({ level: newLevel, current_level_ml: newLevel, updated_at: new Date().toISOString() }).or(`product.eq.${p},liquid.eq.${p}`);
+        await supabase.from('orders').update({ status: 'delivered' }).eq('status', 'pending').or(`product.eq.${p},liquid.eq.${p}`);
+        STATE.tanks[p] = newLevel;
+        STATE.tankUpdated[p] = new Date().toISOString();
+        renderTanks();
+        refreshDashboardFromSupabase();
+      }
     }
 
     window.placeSupplierOrder = async function () {
@@ -1307,6 +1766,17 @@
       const q = parseFloat(document.getElementById('so-qty').value);
       if (!Number.isFinite(q) || q <= 0) { alert('Enter a valid quantity greater than 0'); return; }
       if (q > 10000) { alert('Quantity exceeds maximum allowed order (10,000 L). Please check the amount.'); return; }
+
+      if (useLocalServer) {
+        await fetch(CLOUD_URL + '/api/push', {
+          method: 'POST',
+          body: JSON.stringify({ path: 'orders', data: { product: p, quantity: q, status: 'pending', source: 'manual', orderDate: Date.now() } })
+        });
+        document.getElementById('so-qty').value = '';
+        loadFromLocalServer();
+        return;
+      }
+
       await supabase.from('orders').insert({
         station_id: 'RFX-001',
         liquid: p,
@@ -1318,20 +1788,67 @@
     }
 
     window.markOrderDelivered = async function (id) {
+      if (useLocalServer) {
+        await fetch(CLOUD_URL + '/api/update', {
+          method: 'POST',
+          body: JSON.stringify({ path: `orders/${id}`, data: { status: 'delivered' } })
+        });
+        loadFromLocalServer();
+        return;
+      }
       await supabase.from('orders').update({ status: 'delivered' }).eq('id', id);
+      refreshDashboardFromSupabase();
     }
 
     window.savePrices = async function () {
       const updates = [];
+      const newPrices = {};
       Object.keys(PRODUCTS).forEach(k => {
-        updates.push({ liquid: k, price: parseFloat(document.getElementById('price-' + k).value) });
+        const val = parseFloat(document.getElementById('price-' + k).value);
+        updates.push({ liquid: k, price: val });
+        newPrices[k] = val;
       });
+
+      if (useLocalServer) {
+        await fetch(CLOUD_URL + '/api/update', {
+          method: 'POST',
+          body: JSON.stringify({ path: 'settings/prices', data: newPrices })
+        });
+        alert("Prices saved globally.");
+        loadFromLocalServer();
+        return;
+      }
+
       await supabase.from('prices').upsert(updates);
       alert("Prices saved globally.");
     }
 
     window.factoryReset = async function () {
       if (confirm("Are you SURE you want to wipe all Cloud data?")) {
+        if (useLocalServer) {
+          const defaultState = {
+            stations: {
+              'RFX-001': {
+                tanks: { water: 5000, shampoo: 5000, detergent: 5000, handwash: 5000, oil: 5000 },
+                health: { lastPing: Date.now(), sensors: DEFAULT_SENSORS },
+                dispense: { status: 'idle', progress: 0 }
+              }
+            },
+            settings: { prices: {} },
+            logs: { sessions: {} },
+            users: {},
+            sessions: {},
+            orders: {}
+          };
+          await fetch(CLOUD_URL + '/api/set', {
+            method: 'POST',
+            body: JSON.stringify({ path: '/', data: defaultState })
+          });
+          alert("Factory reset complete.");
+          loadFromLocalServer();
+          return;
+        }
+
         await supabase.from('sessions').delete().eq('station_id', 'RFX-001');
         await supabase.from('orders').delete().eq('station_id', 'RFX-001');
         

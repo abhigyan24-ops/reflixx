@@ -1,5 +1,26 @@
-node_modules/
+# Environment & Credentials
 .env
-dist/
-*.log
+.env.local
 config.js
+
+# Local Database & Dynamic Data
+local_db.json
+*.db
+*.sqlite
+
+# Python Cache & Artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node Dependencies & Build Output
+node_modules/
+dist/
+build/
+.next/
+
+# Logs & System Files
+*.log
+.DS_Store
+Thumbs.db
