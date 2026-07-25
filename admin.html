@@ -608,14 +608,23 @@
           recentlyAutoOrdered.add(k);
           setTimeout(() => recentlyAutoOrdered.delete(k), 5000);
 
+          if (!supabase) {
+            console.error("❌ Cannot place auto-order: Supabase client is null. Ensure SUPABASE_URL and SUPABASE_ANON_KEY are set on Render.");
+            return;
+          }
+
           supabase.from('orders').insert({
             station_id: 'RFX-001',
             liquid: k,
             quantity: REORDER_QTY_LITERS,
             trigger_type: 'auto',
             status: 'pending'
-          }).then(() => {
-            window.addAlert(`${PRODUCTS[k].name} is out of stock — auto-order placed for ${REORDER_QTY_LITERS}L`, 'error');
+          }).then(({ error }) => {
+            if (error) {
+              console.error("❌ Error placing auto-order in Supabase:", error);
+            } else {
+              window.addAlert(`${PRODUCTS[k].name} is out of stock — auto-order placed for ${REORDER_QTY_LITERS}L`, 'error');
+            }
           });
         }
       });
@@ -629,14 +638,26 @@
       const qty = prompt(`Quantity to order for ${PRODUCTS[productKey].name} (liters):`, REORDER_QTY_LITERS);
       const q = parseFloat(qty);
       if (!Number.isFinite(q) || q <= 0) return;
+
+      if (!supabase) {
+        console.error("❌ Cannot place manual order: Supabase client is null. Ensure SUPABASE_URL and SUPABASE_ANON_KEY are set on Render.");
+        alert("Error: Supabase client is not connected. Please check console logs or environment variables.");
+        return;
+      }
+
       supabase.from('orders').insert({
         station_id: 'RFX-001',
         liquid: productKey,
         quantity: q,
         trigger_type: 'manual',
         status: 'pending'
-      }).then(() => {
-        window.addAlert(`Manual order placed for ${PRODUCTS[productKey].name}: ${q}L`, 'success');
+      }).then(({ error }) => {
+        if (error) {
+          console.error("❌ Error placing manual order in Supabase:", error);
+          window.addAlert(`Failed to place order: ${error.message}`, 'error');
+        } else {
+          window.addAlert(`Manual order placed for ${PRODUCTS[productKey].name}: ${q}L`, 'success');
+        }
       });
     }
 
@@ -645,17 +666,35 @@
     let useLocalServer = false;
 
     let supabase = null;
-    try {
-      if (typeof window.supabase !== 'undefined' && typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL && typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY) {
-        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    function initSupabaseClient() {
+      const url = window.SUPABASE_URL || "";
+      const key = window.SUPABASE_ANON_KEY || "";
+      if (typeof window.supabase !== 'undefined' && url && key) {
+        try {
+          supabase = window.supabase.createClient(url, key);
+          console.log("⚡ Supabase Client initialized successfully with URL:", url);
+        } catch (e) {
+          console.error("❌ Supabase Client initialization error:", e);
+        }
+      } else {
+        console.warn("⚠️ Supabase Client NOT initialized: SUPABASE_URL or SUPABASE_ANON_KEY missing.");
+        console.warn("   window.SUPABASE_URL =", JSON.stringify(url));
+        console.warn("   window.SUPABASE_ANON_KEY =", key ? `(SET, ${key.length} chars)` : "❌ EMPTY");
       }
-    } catch (e) {
-      console.warn("Supabase initialization error, using local server fallback:", e);
+      return supabase;
     }
+
     const STATION_ID = 'RFX-001';
 
     async function loadInitialData() {
+      if (window.SUPABASE_CONFIG_PROMISE) {
+        await window.SUPABASE_CONFIG_PROMISE;
+      }
+      initSupabaseClient();
+
       if (!supabase || !window.SUPABASE_URL) {
+        console.warn("⚠️ Supabase client unavailable. Falling back to local server mode.");
         useLocalServer = true;
         return loadFromLocalServer();
       }
@@ -1492,25 +1531,28 @@
       `).join('');
     }
 
-    const SUPA_URL = window.SUPABASE_URL || "";
-    const SUPA_KEY = window.SUPABASE_ANON_KEY || "";
-
     async function supaGet(table, query = '') {
-      const url = `${SUPA_URL.replace(/\/$/, '')}/rest/v1/${table}?${query}`;
+      const urlBase = window.SUPABASE_URL || "";
+      const key = window.SUPABASE_ANON_KEY || "";
+      if (!urlBase || !key) {
+        console.warn(`⚠️ supaGet skipped for '${table}': SUPABASE_URL or SUPABASE_ANON_KEY is missing/empty.`);
+        return [];
+      }
+      const url = `${urlBase.replace(/\/$/, '')}/rest/v1/${table}?${query}`;
       try {
         const res = await fetch(url, {
           headers: {
-            'apikey': SUPA_KEY,
-            'Authorization': `Bearer ${SUPA_KEY}`
+            'apikey': key,
+            'Authorization': `Bearer ${key}`
           }
         });
         if (!res.ok) {
-          console.error(`Supabase ${table} error:`, res.status, await res.text());
+          console.error(`❌ Supabase HTTP error on '${table}': ${res.status}`, await res.text());
           return [];
         }
         return await res.json();
       } catch (e) {
-        console.error('Supabase fetch failed:', e);
+        console.error(`❌ Supabase fetch failed on '${table}':`, e);
         return [];
       }
     }

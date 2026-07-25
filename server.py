@@ -36,10 +36,18 @@ if not SENDER_EMAIL or not SENDER_PASSWORD:
 # ==========================================
 # ⚡ SUPABASE & ENVIRONMENT CONFIGURATION
 # ==========================================
-SUPABASE_URL = os.getenv('SUPABASE_URL', '')
-SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY', '')
+SUPABASE_URL = os.getenv('SUPABASE_URL', '').strip()
+SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY', '').strip()
 ALLOWED_ORIGIN = os.getenv('ALLOWED_ORIGIN', '*')
 ADMIN_PASSCODE = os.getenv('ADMIN_PASSCODE', 'admin123')
+
+print("==========================================")
+print("⚡ REFILLX RUNTIME ENVIRONMENT CHECK:")
+print(f"   SUPABASE_URL: {'SET (' + str(len(SUPABASE_URL)) + ' chars, ' + SUPABASE_URL[:15] + '...)' if SUPABASE_URL else '❌ NOT SET (empty)'}")
+print(f"   SUPABASE_ANON_KEY: {'SET (' + str(len(SUPABASE_ANON_KEY)) + ' chars)' if SUPABASE_ANON_KEY else '❌ NOT SET (empty)'}")
+print(f"   SENDER_EMAIL: {'SET (' + SENDER_EMAIL + ')' if SENDER_EMAIL else '⚠️ NOT SET'}")
+print(f"   ALLOWED_ORIGIN: {ALLOWED_ORIGIN}")
+print("==========================================")
 
 
 def sync_to_supabase(table, data, method='POST', match=None):
@@ -48,6 +56,7 @@ def sync_to_supabase(table, data, method='POST', match=None):
     method='PATCH' → update existing row matching `match` dict — for tanks, users
     """
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        print(f"⚠️ Supabase sync skipped for '{table}': SUPABASE_URL or SUPABASE_ANON_KEY is not set in environment!")
         return
 
     url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{table}"
