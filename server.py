@@ -55,8 +55,8 @@ def sync_to_supabase(table, data, method='POST', match=None):
     method='POST'  → upsert (insert or merge) — for sessions, orders
     method='PATCH' → update existing row matching `match` dict — for tanks, users
     """
-    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-        print(f"⚠️ Supabase sync skipped for '{table}': SUPABASE_URL or SUPABASE_ANON_KEY is not set in environment!")
+    if not SUPABASE_URL or not SUPABASE_URL.startswith(('http://', 'https://')) or not SUPABASE_ANON_KEY:
+        print(f"⚠️ Supabase sync skipped for '{table}': SUPABASE_URL ('{SUPABASE_URL}') is empty or invalid, or SUPABASE_ANON_KEY missing.")
         return
 
     url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{table}"
@@ -78,6 +78,7 @@ def sync_to_supabase(table, data, method='POST', match=None):
         headers['Prefer'] = 'resolution=merge-duplicates,return=minimal'
 
     try:
+        print(f"🌐 Backend calling Supabase at: {url}")
         req = urllib.request.Request(
             url,
             data=json.dumps(data).encode('utf-8'),

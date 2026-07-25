@@ -668,19 +668,26 @@
     let supabase = null;
 
     function initSupabaseClient() {
-      const url = window.SUPABASE_URL || "";
-      const key = window.SUPABASE_ANON_KEY || "";
-      if (typeof window.supabase !== 'undefined' && url && key) {
+      const url = (window.SUPABASE_URL || "").trim();
+      const key = (window.SUPABASE_ANON_KEY || "").trim();
+      if (!url || !url.startsWith('http')) {
+        console.warn("⚠️ Supabase Client NOT initialized: window.SUPABASE_URL is empty or not a valid HTTP URL:", JSON.stringify(url));
+        supabase = null;
+        return null;
+      }
+      if (!key) {
+        console.warn("⚠️ Supabase Client NOT initialized: window.SUPABASE_ANON_KEY is empty.");
+        supabase = null;
+        return null;
+      }
+      if (typeof window.supabase !== 'undefined') {
         try {
           supabase = window.supabase.createClient(url, key);
-          console.log("⚡ Supabase Client initialized successfully with URL:", url);
+          console.log("⚡ Supabase JS Client created pointing to full target URL:", url);
         } catch (e) {
           console.error("❌ Supabase Client initialization error:", e);
+          supabase = null;
         }
-      } else {
-        console.warn("⚠️ Supabase Client NOT initialized: SUPABASE_URL or SUPABASE_ANON_KEY missing.");
-        console.warn("   window.SUPABASE_URL =", JSON.stringify(url));
-        console.warn("   window.SUPABASE_ANON_KEY =", key ? `(SET, ${key.length} chars)` : "❌ EMPTY");
       }
       return supabase;
     }
@@ -1532,27 +1539,32 @@
     }
 
     async function supaGet(table, query = '') {
-      const urlBase = window.SUPABASE_URL || "";
-      const key = window.SUPABASE_ANON_KEY || "";
-      if (!urlBase || !key) {
-        console.warn(`⚠️ supaGet skipped for '${table}': SUPABASE_URL or SUPABASE_ANON_KEY is missing/empty.`);
+      const urlBase = (window.SUPABASE_URL || "").trim();
+      const key = (window.SUPABASE_ANON_KEY || "").trim();
+      if (!urlBase || !urlBase.startsWith('http')) {
+        console.warn(`⚠️ supaGet skipped for '${table}': window.SUPABASE_URL ('${urlBase}') is empty or invalid.`);
         return [];
       }
-      const url = `${urlBase.replace(/\/$/, '')}/rest/v1/${table}?${query}`;
+      if (!key) {
+        console.warn(`⚠️ supaGet skipped for '${table}': window.SUPABASE_ANON_KEY is empty.`);
+        return [];
+      }
+      const fullUrl = `${urlBase.replace(/\/$/, '')}/rest/v1/${table}?${query}`;
+      console.log(`🌐 supaGet requesting full URL: ${fullUrl}`);
       try {
-        const res = await fetch(url, {
+        const res = await fetch(fullUrl, {
           headers: {
             'apikey': key,
             'Authorization': `Bearer ${key}`
           }
         });
         if (!res.ok) {
-          console.error(`❌ Supabase HTTP error on '${table}': ${res.status}`, await res.text());
+          console.error(`❌ Supabase HTTP ${res.status} on ${fullUrl}:`, await res.text());
           return [];
         }
         return await res.json();
       } catch (e) {
-        console.error(`❌ Supabase fetch failed on '${table}':`, e);
+        console.error(`❌ Supabase fetch exception on ${fullUrl}:`, e);
         return [];
       }
     }
@@ -1667,28 +1679,30 @@
 
     // Initialize realtime Supabase client and start dashboard refresh
     try {
-      const _supaClient = window.supabase.createClient(
-        window.SUPABASE_URL || SUPA_URL,
-        window.SUPABASE_ANON_KEY || SUPA_KEY
-      );
+      const url = (window.SUPABASE_URL || "").trim();
+      const key = (window.SUPABASE_ANON_KEY || "").trim();
+      if (typeof window.supabase !== 'undefined' && url && url.startsWith('http') && key) {
+        console.log("🌐 Initializing Realtime Supabase Client on host:", url);
+        const _supaClient = window.supabase.createClient(url, key);
 
-      _supaClient.channel('admin-live')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, refreshDashboardFromSupabase)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, refreshDashboardFromSupabase)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'tanks' }, () => {
-          refreshInventoryFromSupabase();
-          refreshDashboardFromSupabase();
-        })
-        .subscribe(status => {
-          console.log('Supabase realtime status:', status);
-          const badge = document.getElementById('conn-badge');
-          if (badge) {
-            badge.innerText = status === 'SUBSCRIBED' ? '● LIVE' : '⟳ SYNCING';
-            badge.style.color = status === 'SUBSCRIBED' ? '#3ecf7a' : '#f0b429';
-          }
-        });
-
-      console.log('✅ Supabase realtime channel subscribed');
+        _supaClient.channel('admin-live')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, refreshDashboardFromSupabase)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, refreshDashboardFromSupabase)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'tanks' }, () => {
+            refreshInventoryFromSupabase();
+            refreshDashboardFromSupabase();
+          })
+          .subscribe(status => {
+            console.log('Supabase realtime status:', status);
+            const badge = document.getElementById('conn-badge');
+            if (badge) {
+              badge.innerText = status === 'SUBSCRIBED' ? '● LIVE' : '⟳ SYNCING';
+              badge.style.color = status === 'SUBSCRIBED' ? '#3ecf7a' : '#f0b429';
+            }
+          });
+      } else {
+        console.warn("⚠️ Realtime Supabase Client skipped: SUPABASE_URL ('" + url + "') is empty or not a valid HTTP URL.");
+      }
     } catch (err) {
       console.warn('⚠️ Supabase realtime init failed (polling only):', err);
     }
