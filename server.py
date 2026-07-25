@@ -432,7 +432,7 @@ class KioskHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed_path = urlparse(self.path)
 
-        # Config endpoint to serve non-secret client configuration to frontend
+        # 1. Config endpoint serving non-secret client configuration as JSON
         if parsed_path.path == '/api/config':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -442,6 +442,57 @@ class KioskHandler(http.server.SimpleHTTPRequestHandler):
                 'supabaseAnonKey': SUPABASE_ANON_KEY,
                 'adminPasscodeRequired': bool(ADMIN_PASSCODE)
             }).encode('utf-8'))
+
+        # 2. Dynamic config.js script serving at request time
+        elif parsed_path.path == '/config.js':
+            js_content = f"""// Dynamically injected by server.py at request time
+window.SUPABASE_URL = {json.dumps(SUPABASE_URL)};
+window.SUPABASE_ANON_KEY = {json.dumps(SUPABASE_ANON_KEY)};
+window.SUPABASE_CONFIG_PROMISE = Promise.resolve({{
+  supabaseUrl: window.SUPABASE_URL,
+  supabaseAnonKey: window.SUPABASE_ANON_KEY
+}});
+console.log("⚡ RefillX Config Injected by Server:", {{
+  supabaseUrl: window.SUPABASE_URL ? (window.SUPABASE_URL.substring(0, 15) + "...") : "❌ EMPTY",
+  supabaseAnonKey: window.SUPABASE_ANON_KEY ? (window.SUPABASE_ANON_KEY.length + " chars") : "❌ EMPTY"
+}});
+"""
+            self.send_response(200)
+            self.send_header('Content-type', 'application/javascript; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(js_content.encode('utf-8'))
+
+        # 3. Dynamic HTML templating: Inject window.SUPABASE_URL and SUPABASE_ANON_KEY into HTML pages at request time
+        elif parsed_path.path.endswith('.html') or parsed_path.path in ['/', '']:
+            filename = parsed_path.path.lstrip('/')
+            if not filename or filename == '/':
+                filename = 'admin.html'
+            if os.path.exists(filename):
+                try:
+                    with open(filename, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    
+                    injection = f"""<script>
+  window.SUPABASE_URL = {json.dumps(SUPABASE_URL)};
+  window.SUPABASE_ANON_KEY = {json.dumps(SUPABASE_ANON_KEY)};
+  window.SUPABASE_CONFIG_PROMISE = Promise.resolve({{
+    supabaseUrl: window.SUPABASE_URL,
+    supabaseAnonKey: window.SUPABASE_ANON_KEY
+  }});
+</script>"""
+                    if '</head>' in html_content:
+                        html_content = html_content.replace('</head>', f'{injection}\n</head>', 1)
+                    else:
+                        html_content = injection + html_content
+
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(html_content.encode('utf-8'))
+                    return
+                except Exception as e:
+                    print(f"Error dynamically serving HTML file {filename}:", e)
+
 
         # Original status endpoint for old logic (if any)
         elif parsed_path.path == '/status':
