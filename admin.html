@@ -687,6 +687,7 @@
     let supabase = null;
 
     function initSupabaseClient() {
+      if (supabase) return supabase;
       const url = (window.SUPABASE_URL || "").trim();
       const key = (window.SUPABASE_ANON_KEY || "").trim();
       if (!url || !url.startsWith('http')) {
@@ -702,7 +703,7 @@
       if (typeof window.supabase !== 'undefined') {
         try {
           supabase = window.supabase.createClient(url, key);
-          console.log("⚡ Supabase JS Client created pointing to full target URL:", url);
+          console.log("⚡ Singleton Supabase Client created pointing to:", url);
         } catch (e) {
           console.error("❌ Supabase Client initialization error:", e);
           supabase = null;
@@ -1696,15 +1697,12 @@
       }
     }
 
-    // Initialize realtime Supabase client and start dashboard refresh
+    // Initialize realtime subscription using single shared Supabase client instance
     try {
-      const url = (window.SUPABASE_URL || "").trim();
-      const key = (window.SUPABASE_ANON_KEY || "").trim();
-      if (typeof window.supabase !== 'undefined' && url && url.startsWith('http') && key) {
-        console.log("🌐 Initializing Realtime Supabase Client on host:", url);
-        const _supaClient = window.supabase.createClient(url, key);
-
-        _supaClient.channel('admin-live')
+      const client = initSupabaseClient();
+      if (client) {
+        console.log("🌐 Subscribing realtime channel on shared Supabase Client...");
+        client.channel('admin-live')
           .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, refreshDashboardFromSupabase)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, refreshDashboardFromSupabase)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'tanks' }, () => {
@@ -1720,7 +1718,7 @@
             }
           });
       } else {
-        console.warn("⚠️ Realtime Supabase Client skipped: SUPABASE_URL ('" + url + "') is empty or not a valid HTTP URL.");
+        console.warn("⚠️ Realtime subscription skipped: Shared Supabase Client is not initialized.");
       }
     } catch (err) {
       console.warn('⚠️ Supabase realtime init failed (polling only):', err);
