@@ -259,25 +259,6 @@
 </head>
 
 <body>
-  <!-- Visible On-Page Debug Line for Deployment Verification -->
-  <div id="debug-supabase-banner" style="background:#1a0505; color:#ff4d4d; border-bottom:2px solid #ff4d4d; padding:10px; font-family:monospace; font-weight:bold; font-size:13px; text-align:center; z-index:100000; position:relative;">
-    🔍 DEPLOYMENT DEBUG: SUPABASE_URL = <span id="debug-supa-url-val" style="color:#fff;">LOADING...</span> | SUPABASE_ANON_KEY = <span id="debug-supa-key-val" style="color:#fff;">LOADING...</span>
-  </div>
-  <script>
-    function updateDebugBanner() {
-      var urlEl = document.getElementById('debug-supa-url-val');
-      var keyEl = document.getElementById('debug-supa-key-val');
-      var url = (window.SUPABASE_URL || "").trim();
-      var key = (window.SUPABASE_ANON_KEY || "").trim();
-      if (urlEl) urlEl.textContent = url ? url : '❌ EMPTY ("")';
-      if (keyEl) keyEl.textContent = key ? (key.length + ' chars (' + key.substring(0, 15) + '...)') : '❌ EMPTY ("")';
-    }
-    if (window.SUPABASE_CONFIG_PROMISE) {
-      window.SUPABASE_CONFIG_PROMISE.then(updateDebugBanner);
-    }
-    document.addEventListener('DOMContentLoaded', updateDebugBanner);
-    setInterval(updateDebugBanner, 1000);
-  </script>
   <div id="connection-banner">Offline mode — using cached data</div>
 
   <!-- Admin Authentication Modal Overlay -->

@@ -466,7 +466,7 @@ console.log("⚡ RefillX Config Injected by Server:", {{
         elif parsed_path.path.endswith('.html') or parsed_path.path in ['/', '']:
             filename = parsed_path.path.lstrip('/')
             if not filename or filename == '/':
-                filename = 'admin.html'
+                filename = 'refillx-machine.html'
             if os.path.exists(filename):
                 try:
                     with open(filename, 'r', encoding='utf-8') as f:
