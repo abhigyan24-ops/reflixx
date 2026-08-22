@@ -30,8 +30,12 @@ load_dotenv()
 SENDER_EMAIL    = os.getenv('SENDER_EMAIL', '')
 SENDER_PASSWORD = os.getenv('SENDER_PASSWORD', '')
 
+RESEND_API_KEY   = os.getenv('RESEND_API_KEY', '').strip()
+BREVO_API_KEY    = os.getenv('BREVO_API_KEY', '').strip()
+SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY', '').strip()
+
 if not SENDER_EMAIL or not SENDER_PASSWORD:
-    print("WARNING: SENDER_EMAIL or SENDER_PASSWORD not set in .env — email sending will fail.")
+    print("WARNING: SENDER_EMAIL or SENDER_PASSWORD not set in .env — SMTP email sending will fail.")
 
 # ==========================================
 # ⚡ SUPABASE & ENVIRONMENT CONFIGURATION
@@ -340,6 +344,145 @@ def increment_user_points_in_supabase(uid, pts_to_add, email='', name=''):
             })
     except Exception as e:
         print(f"⚠️ Points increment error: {e}")
+
+# ==========================================
+# 📧 UNIFIED EMAIL DISPATCHER
+# ==========================================
+def send_email_via_resend(api_key, to_email, subject, html_content, from_name="RefillX", from_email=None):
+    from_addr = f"{from_name} <{from_email or 'onboarding@resend.dev'}>"
+    url = 'https://api.resend.com/emails'
+    payload = json.dumps({
+        'from': from_addr,
+        'to': [to_email],
+        'subject': subject,
+        'html': html_content
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+            'User-Agent': 'RefillX-Server/1.0'
+        },
+        method='POST'
+    )
+    with urllib.request.urlopen(req, timeout=8) as response:
+        return True, response.read().decode('utf-8')
+
+def send_email_via_brevo(api_key, to_email, subject, html_content, from_name="RefillX", from_email=None):
+    from_addr = from_email or SENDER_EMAIL or 'noreply@refillx.com'
+    url = 'https://api.brevo.com/v3/smtp/email'
+    payload = json.dumps({
+        'sender': {'name': from_name, 'email': from_addr},
+        'to': [{'email': to_email}],
+        'subject': subject,
+        'htmlContent': html_content
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            'api-key': api_key,
+            'Content-Type': 'application/json'
+        },
+        method='POST'
+    )
+    with urllib.request.urlopen(req, timeout=8) as response:
+        return True, response.read().decode('utf-8')
+
+def send_email_via_sendgrid(api_key, to_email, subject, html_content, from_name="RefillX", from_email=None):
+    from_addr = from_email or SENDER_EMAIL or 'noreply@refillx.com'
+    url = 'https://api.sendgrid.com/v3/mail/send'
+    payload = json.dumps({
+        'personalizations': [{'to': [{'email': to_email}]}],
+        'from': {'email': from_addr, 'name': from_name},
+        'subject': subject,
+        'content': [{'type': 'text/html', 'value': html_content}]
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        },
+        method='POST'
+    )
+    with urllib.request.urlopen(req, timeout=8) as response:
+        return True, 'OK'
+
+def send_email_via_smtp(to_email, subject, html_content, from_name="RefillX"):
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        return False, "SENDER_EMAIL or SENDER_PASSWORD not set"
+    
+    msg = MIMEMultipart()
+    msg['From'] = f"{from_name} <{SENDER_EMAIL}>"
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    # 1. Try STARTTLS on port 587 with strict 4-second timeout
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=4)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True, "Sent via SMTP 587"
+    except Exception as e587:
+        # 2. Try SSL on port 465 with strict 4-second timeout
+        try:
+            server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=4)
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+            server.quit()
+            return True, "Sent via SMTP SSL 465"
+        except Exception as e465:
+            return False, f"SMTP 587 ({e587}), SMTP 465 ({e465})"
+
+def dispatch_email(to_email, subject, html_content, from_name="RefillX"):
+    """
+    Sends email via HTTP API (Resend, Brevo, SendGrid) or SMTP with strict timeout.
+    Returns (success: bool, status_message: str)
+    """
+    if RESEND_API_KEY:
+        try:
+            ok, res = send_email_via_resend(RESEND_API_KEY, to_email, subject, html_content, from_name=from_name)
+            if ok:
+                print(f"✅ Email delivered to {to_email} via Resend HTTP API")
+                return True, "Delivered via Resend HTTP API"
+        except Exception as e:
+            print(f"⚠️ Resend HTTP API error: {e}")
+
+    if BREVO_API_KEY:
+        try:
+            ok, res = send_email_via_brevo(BREVO_API_KEY, to_email, subject, html_content, from_name=from_name)
+            if ok:
+                print(f"✅ Email delivered to {to_email} via Brevo HTTP API")
+                return True, "Delivered via Brevo HTTP API"
+        except Exception as e:
+            print(f"⚠️ Brevo HTTP API error: {e}")
+
+    if SENDGRID_API_KEY:
+        try:
+            ok, res = send_email_via_sendgrid(SENDGRID_API_KEY, to_email, subject, html_content, from_name=from_name)
+            if ok:
+                print(f"✅ Email delivered to {to_email} via SendGrid HTTP API")
+                return True, "Delivered via SendGrid HTTP API"
+        except Exception as e:
+            print(f"⚠️ SendGrid HTTP API error: {e}")
+
+    if SENDER_EMAIL and SENDER_PASSWORD:
+        ok, msg = send_email_via_smtp(to_email, subject, html_content, from_name=from_name)
+        if ok:
+            print(f"✅ Email delivered to {to_email} via SMTP")
+            return True, "Delivered via SMTP"
+        else:
+            print(f"⚠️ SMTP delivery failed: {msg}")
+            return False, msg
+
+    return False, "No working email transport configured or reachable"
 # ==========================================
 
 PORT = int(os.getenv('PORT', 8080))
@@ -702,63 +845,42 @@ console.log("⚡ RefillX Config Injected by Server:", {{
                 product = payload.get('product', 'Dispense')
                 volume = payload.get('volume', '500ml')
                 price = payload.get('price', '₹0.00')
-                date_time = payload.get('date_time', '')
-                txn = payload.get('txn', '')
+                date_time = payload.get('date_time', time.strftime('%Y-%m-%d %H:%M:%S'))
+                txn = payload.get('txn', 'TXN-' + str(int(time.time())))
 
-                if not SENDER_EMAIL or not SENDER_PASSWORD:
-                    err_msg = "SENDER_EMAIL or SENDER_PASSWORD not set in .env file."
-                    print(f"❌ sendReceipt notice: {err_msg}")
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'success': False, 'error': err_msg}).encode('utf-8'))
-                    return
+                html_body = f"""
+                <html>
+                  <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                    <h2 style="color: #2d9e5f;">RefillX Dispense Receipt 🌿</h2>
+                    <p>Hi <strong>{user_name}</strong>,</p>
+                    <p>Thank you for refilling with RefillX! Here are your transaction details:</p>
+                    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Transaction ID:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{txn}</td></tr>
+                      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Product:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{product}</td></tr>
+                      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Volume:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{volume}</td></tr>
+                      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Amount Paid:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{price}</td></tr>
+                      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Date & Time:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{date_time}</td></tr>
+                    </table>
+                    <p style="color: #2d9e5f; font-weight: bold;">Thank you for saving plastic bottles! 🌱</p>
+                  </body>
+                </html>
+                """
 
-                try:
-                    msg = MIMEMultipart()
-                    msg['From'] = f"RefillX <{SENDER_EMAIL}>"
-                    msg['To'] = user_email
-                    msg['Subject'] = f"RefillX Receipt — Order #{txn}"
+                def do_send():
+                    dispatch_email(
+                        to_email=user_email,
+                        subject=f"RefillX Receipt — Order #{txn}",
+                        html_content=html_body,
+                        from_name="RefillX"
+                    )
 
-                    html_body = f"""
-                    <html>
-                      <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                        <h2 style="color: #2d9e5f;">RefillX Dispense Receipt 🌿</h2>
-                        <p>Hi <strong>{user_name}</strong>,</p>
-                        <p>Thank you for refilling with RefillX! Here are your transaction details:</p>
-                        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-                          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Transaction ID:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{txn}</td></tr>
-                          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Product:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{product}</td></tr>
-                          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Volume:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{volume}</td></tr>
-                          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Amount Paid:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{price}</td></tr>
-                          <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Date & Time:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{date_time}</td></tr>
-                        </table>
-                        <p style="color: #2d9e5f; font-weight: bold;">Thank you for saving plastic bottles! 🌱</p>
-                      </body>
-                    </html>
-                    """
-                    msg.attach(MIMEText(html_body, 'html'))
-                    srv = smtplib.SMTP('smtp.gmail.com', 587)
-                    srv.starttls()
-                    srv.login(SENDER_EMAIL, SENDER_PASSWORD)
-                    srv.send_message(msg)
-                    srv.quit()
-                    print(f"✅ Receipt email sent to {user_email}")
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'success': True, 'email': user_email}).encode('utf-8'))
-                    return
-                except Exception as mail_err:
-                    print(f"❌ Email send error: {mail_err}")
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'success': False, 'error': str(mail_err)}).encode('utf-8'))
-                    return
+                threading.Thread(target=do_send, daemon=True).start()
+
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': True, 'email': user_email}).encode('utf-8'))
             except Exception as e:
                 self.send_response(500)
                 self.send_header('Content-type', 'application/json')
@@ -1084,13 +1206,12 @@ console.log("⚡ RefillX Config Injected by Server:", {{
                               </body>
                             </html>
                             """
-                            msg.attach(MIMEText(html_body, 'html'))
-                            srv = smtplib.SMTP('smtp.gmail.com', 587)
-                            srv.starttls()
-                            srv.login(SENDER_EMAIL, SENDER_PASSWORD)
-                            srv.send_message(msg)
-                            srv.quit()
-                            print(f"Receipt email successfully sent to {user_email}")
+                            dispatch_email(
+                                to_email=user_email,
+                                subject=f"RefillX Receipt — Order #{order_id}",
+                                html_content=html_body,
+                                from_name="RefillX"
+                            )
                         except Exception as em_err:
                             print(f"Failed to send receipt email to {user_email}: {em_err}")
 
@@ -1110,69 +1231,6 @@ console.log("⚡ RefillX Config Injected by Server:", {{
                 self.end_headers()
                 self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
 
-        elif parsed_path.path == '/api/call/sendReceipt':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            try:
-                payload = json.loads(post_data.decode('utf-8'))
-                if 'data' in payload: payload = payload['data']
-
-                email = payload.get('email', '')
-                name = payload.get('name', 'Customer')
-                product = payload.get('product', 'Product')
-                volume = payload.get('volume', '500ml')
-                price = payload.get('price', '₹0.00')
-                txn = payload.get('txn', 'TXN-REF')
-                date_time = payload.get('date_time', time.strftime('%Y-%m-%d %H:%M:%S'))
-
-                if email and SENDER_EMAIL and SENDER_PASSWORD:
-                    def do_send():
-                        try:
-                            msg = MIMEMultipart()
-                            msg['From'] = f"RefillX <{SENDER_EMAIL}>"
-                            msg['To'] = email
-                            msg['Subject'] = f"RefillX Receipt — Order #{txn}"
-
-                            html_body = f"""
-                            <html>
-                              <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                                <h2 style="color: #2d9e5f;">RefillX Dispense Receipt 🌿</h2>
-                                <p>Hi <strong>{name}</strong>,</p>
-                                <p>Thank you for refilling with RefillX! Here are your transaction details:</p>
-                                <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-                                  <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Order / Txn ID:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{txn}</td></tr>
-                                  <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Station ID:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">RFX-001</td></tr>
-                                  <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Product:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{product}</td></tr>
-                                  <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Quantity:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{volume}</td></tr>
-                                  <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Amount Paid:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{price}</td></tr>
-                                  <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Date & Time:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">{date_time}</td></tr>
-                                </table>
-                                <p style="color: #2d9e5f; font-weight: bold;">Thank you for reducing plastic waste! 🌱</p>
-                              </body>
-                            </html>
-                            """
-                            msg.attach(MIMEText(html_body, 'html'))
-                            srv = smtplib.SMTP('smtp.gmail.com', 587)
-                            srv.starttls()
-                            srv.login(SENDER_EMAIL, SENDER_PASSWORD)
-                            srv.send_message(msg)
-                            srv.quit()
-                            print(f"Direct receipt email successfully sent to {email}")
-                        except Exception as em_err:
-                            print(f"Failed to send direct receipt email to {email}: {em_err}")
-                    threading.Thread(target=do_send).start()
-
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps({'success': True}).encode('utf-8'))
-            except Exception as e:
-                self.send_response(500)
-                self.send_header('Content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
 
         elif parsed_path.path == '/api/call/verifyShortCode':
             content_length = int(self.headers['Content-Length'])
@@ -1232,28 +1290,45 @@ console.log("⚡ RefillX Config Injected by Server:", {{
                         'otp': otp,
                         'expiresAt': int(time.time() * 1000) + 600000  # 10 mins
                     }
-                threading.Thread(target=save_db).start()
+                threading.Thread(target=save_db, daemon=True).start()
 
-                msg = MIMEMultipart()
-                msg['From'] = f"RefillX <{SENDER_EMAIL}>"
-                msg['To'] = email
-                msg['Subject'] = f"Your RefillX Login Code: {otp}"
+                html_content = f"""
+                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; background: #0a140d; color: #ffffff; padding: 30px; border-radius: 16px; border: 1px solid #1e3a29;">
+                  <h2 style="color: #3ecf7a; margin-top: 0;">RefillX Login Verification</h2>
+                  <p style="color: #d1d5db; font-size: 15px;">Use the following 6-digit verification code to sign in to your RefillX account:</p>
+                  <div style="background: #112217; border: 2px dashed #3ecf7a; border-radius: 12px; padding: 20px; text-align: center; margin: 25px 0;">
+                    <span style="font-family: monospace; font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #3ecf7a;">{otp}</span>
+                  </div>
+                  <p style="color: #9ca3af; font-size: 13px; margin-bottom: 0;">This code will expire in 10 minutes. If you did not request this code, please ignore this email.</p>
+                </div>
+                """
 
-                html_content = f"<html><body><h2>Your RefillX Login Code</h2><p>Your 6-digit code is: <strong>{otp}</strong></p><p>This code will expire in 10 minutes.</p></body></html>"
-                msg.attach(MIMEText(html_content, 'html'))
+                email_sent, send_info = dispatch_email(
+                    to_email=email,
+                    subject=f"Your RefillX Login Code: {otp}",
+                    html_content=html_content,
+                    from_name="RefillX"
+                )
 
-                server = smtplib.SMTP('smtp.gmail.com', 587)
-                server.starttls()
-                server.login(SENDER_EMAIL, SENDER_PASSWORD)
-                server.send_message(msg)
-                server.quit()
+                response_body = {
+                    'success': True,
+                    'email_sent': email_sent,
+                    'message': 'Code sent successfully' if email_sent else 'Code generated (Host blocks SMTP)'
+                }
+
+                if not email_sent:
+                    print(f"📢 [OTP DEMO FALLBACK] Generated OTP for {email}: {otp} (Reason: {send_info})")
+                    response_body['otp_demo'] = otp
+                    response_body['notice'] = "Render Free Tier blocks SMTP. For live email delivery, set RESEND_API_KEY in Render."
 
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
-                self.wfile.write(json.dumps({'success': True}).encode('utf-8'))
+                self.wfile.write(json.dumps(response_body).encode('utf-8'))
             except Exception as e:
+                print(f"❌ sendEmailOtp error: {e}")
+                traceback.print_exc()
                 self.send_response(500)
                 self.send_header('Content-type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -1371,12 +1446,12 @@ console.log("⚡ RefillX Config Injected by Server:", {{
                   </body>
                 </html>
                 """
-                msg.attach(MIMEText(html_content, 'html'))
-                server = smtplib.SMTP('smtp.gmail.com', 587)
-                server.starttls()
-                server.login(SENDER_EMAIL, SENDER_PASSWORD)
-                server.send_message(msg)
-                server.quit()
+                dispatch_email(
+                    to_email=recipient,
+                    subject=f"Your RefillX Receipt: {product} ({volume})",
+                    html_content=html_content,
+                    from_name="RefillX Station"
+                )
 
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')

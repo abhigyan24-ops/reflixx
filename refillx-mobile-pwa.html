@@ -1373,7 +1373,18 @@
         if (data.error) {
           errorEl.innerText = data.error; errorEl.classList.remove('hidden');
         } else {
-          document.getElementById('otp-desc').innerText = "We sent a code to " + emailInput;
+          let descText = "We sent a code to " + emailInput;
+          if (data.email_sent === false && data.otp_demo) {
+            console.warn("DEMO MODE:", data.notice);
+            descText = "Email delivery disabled by host. For demo purposes, your code is: " + data.otp_demo;
+            // Pre-fill the input so they don't have to memorize it
+            setTimeout(() => {
+              const otpInput = document.getElementById('otp-input');
+              if (otpInput) otpInput.value = data.otp_demo;
+            }, 500);
+            window.showInAppToast(data.notice || "Using Demo Mode", "error");
+          }
+          document.getElementById('otp-desc').innerText = descText;
           showScreen('otp');
         }
       }).catch(err => {
