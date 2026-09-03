@@ -607,7 +607,7 @@
         <div class="bg-white p-3 rounded-2xl border-4 border-[#3ecf7a] mb-2 shadow-2xl flex flex-col items-center">
           <div id="upi-qrcode" class="flex justify-center items-center"></div>
           <p class="text-[11px] text-gray-800 font-bold font-mono mt-2 bg-gray-100 px-2 py-0.5 rounded">VPA:
-            9039878046-1@nyes</p>
+            refillx@demo</p>
         </div>
         <div class="text-[11px] text-gray-400 text-center mb-3 bg-[#111] p-2 rounded-lg border border-[#333] w-full">
           ℹ️ <strong>Note:</strong> You may see our bank-registered name on your payment app screen — this is normal and
@@ -1612,7 +1612,7 @@
     }
 
     window.openUPIApp = function () {
-      const upiId = "9039878046-1@nyes";
+      const upiId = "refillx@demo";
       const payeeName = encodeURIComponent("Abhigyan");
       const amount = (window.ORDER && window.ORDER.amount) ? window.ORDER.amount.toFixed(2) : "0.00";
       const note = encodeURIComponent(`RefillX Order ${window.CURRENT_SID || 'RX-001'}`);
@@ -1635,7 +1635,7 @@
       document.getElementById('pay-desc').innerText = `${window.ORDER.quantity}ml ${PRODUCTS[window.ORDER.product].name}`;
       document.getElementById('pay-amount-display').innerText = `₹${window.ORDER.amount.toFixed(2)}`;
 
-      const upiId = "9039878046-1@nyes";
+      const upiId = "refillx@demo";
       const payeeName = encodeURIComponent("Abhigyan");
       const amount = window.ORDER.amount.toFixed(2);
       const note = encodeURIComponent(`RefillX Order ${window.CURRENT_SID || 'RX-001'}`);

@@ -715,7 +715,7 @@
         document.getElementById('pay-amount').innerText = `₹${window.appState.price}`;
         
         // Setup UPI Link
-        const upiUrl = `upi://pay?pa=9214567907@ptsbi&pn=RefillX&am=${window.appState.price}&cu=INR&tn=RefillX+Refill`;
+        const upiUrl = `upi://pay?pa=refillx@demo&pn=RefillX&am=${window.appState.price}&cu=INR&tn=RefillX+Refill`;
         document.getElementById('upi-link').href = upiUrl;
       }
     }

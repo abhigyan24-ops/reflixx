@@ -510,7 +510,7 @@
         document.getElementById('pay-amt').innerHTML = discHtml + `₹${amt}`;
         
         const upiName = encodeURIComponent("Divyansh Singh");
-        const upiLink = `upi://pay?pa=7073124565@fam&pn=${upiName}&am=${amt}&cu=INR`;
+        const upiLink = `upi://pay?pa=refillx@demo&pn=${upiName}&am=${amt}&cu=INR`;
         document.getElementById('kiosk-upi-qr').innerHTML = "";
         new QRCode(document.getElementById('kiosk-upi-qr'), { text: upiLink, width: 220, height: 220, colorDark: "#000", colorLight: "#fff" });
         
